@@ -6,14 +6,14 @@
   "main": "out/main/index.js",
   "scripts": {
     "dev": "electron-vite dev",
-    "build": "electron-vite build && electron-builder --win portable",
-    "build:linux": "electron-vite build && electron-builder --linux AppImage",
+    "build": "electron-vite build && electron-builder --win portable --publish never",
+    "build:linux": "electron-vite build && electron-builder --linux AppImage --publish never",
     "typecheck": "tsc --noEmit",
     "lint": "eslint .",
     "test": "vitest run",
     "format": "prettier --write .",
-    "build:win": "electron-vite build && electron-builder --win portable",
-    "build:all": "electron-vite build && electron-builder --win portable --linux AppImage"
+    "build:win": "electron-vite build && electron-builder --win portable --publish never",
+    "build:all": "electron-vite build && electron-builder --win portable --linux AppImage --publish never"
   },
   "dependencies": {
     "react": "^19.1.1",

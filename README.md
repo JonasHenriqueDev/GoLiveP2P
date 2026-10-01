@@ -4,22 +4,22 @@ Aplicativo desktop para compartilhar tela com até cinco pessoas na mesma tailne
 
 ## Plataformas e requisitos
 
-- Windows 10/11: executável portátil, plataforma principal. Vídeo de monitor e janela disponível. Áudio de janela usa a API por processo presente no build 20348 ou superior (na prática, Windows 11 nos computadores de uso comum); essa captura ainda requer validação em dispositivos reais.
+- Windows 10/11: executável portátil, plataforma principal. Vídeo de monitor e janela disponível. Áudio de janela tenta a API por processo no Windows 10 2004 (build 19041) ou posterior; o funcionamento depende das atualizações do Windows e ainda requer validação em dispositivos reais.
 - Linux: AppImage. A captura de tela depende do compositor e, em Wayland, do xdg-desktop-portal. O áudio fica desativado até existir filtragem segura do Discord nessa plataforma.
 - Tailscale instalado, autenticado e conectado à mesma tailnet em cada computador.
 - Para desenvolvimento: Node.js 22+ e npm.
 
 O aplicativo não instala nem configura o Tailscale. Não exige IP público, abertura de portas no roteador, VPS, STUN ou TURN. As ACLs da tailnet e o firewall local precisam permitir TCP 47621 até o host e UDP entre os peers.
 
-## Downloads da versão 0.3.0
+## Downloads da versão 0.3.1
 
-Baixe os executáveis completos na [release v0.3.0](https://github.com/JonasHenriqueDev/GoLiveP2P/releases/tag/v0.3.0):
+Baixe os executáveis completos na [release v0.3.1](https://github.com/JonasHenriqueDev/GoLiveP2P/releases/tag/v0.3.1):
 
-- [Windows portátil (.exe)](https://github.com/JonasHenriqueDev/GoLiveP2P/releases/download/v0.3.0/GoLive-P2P-Portable-0.3.0.exe)
-- [Linux AppImage](https://github.com/JonasHenriqueDev/GoLiveP2P/releases/download/v0.3.0/GoLive-P2P-0.3.0.AppImage)
-- [Checksums SHA-256](https://github.com/JonasHenriqueDev/GoLiveP2P/releases/download/v0.3.0/SHA256SUMS-0.3.0.txt)
+- [Windows portátil (.exe)](https://github.com/JonasHenriqueDev/GoLiveP2P/releases/download/v0.3.1/GoLive-P2P-Portable-0.3.1.exe)
+- [Linux AppImage](https://github.com/JonasHenriqueDev/GoLiveP2P/releases/download/v0.3.1/GoLive-P2P-0.3.1.AppImage)
+- [Checksums SHA-256](https://github.com/JonasHenriqueDev/GoLiveP2P/releases/download/v0.3.1/SHA256SUMS-0.3.1.txt)
 
-No Linux, execute `chmod +x GoLive-P2P-0.3.0.AppImage` antes de abrir.
+No Linux, execute `chmod +x GoLive-P2P-0.3.1.AppImage` antes de abrir.
 
 ## Desenvolvimento e builds
 
@@ -53,9 +53,9 @@ Presets: 720p30, 720p60, 1080p30, 1080p60 e 1440p30. São metas de captura. O us
 
 Ao compartilhar **uma janela no Windows compatível**, marcar **Áudio do aplicativo (janela)** solicita a captura da árvore de processos da janela selecionada. O helper bloqueia janelas do Discord e do próprio GoLive e interrompe o áudio se um desses aplicativos aparecer como subprocesso da árvore capturada. O microfone não é capturado como entrada. O loopback geral do Electron foi removido para evitar misturar origens de áudio.
 
-Ao compartilhar **um monitor**, a transmissão é apenas de vídeo. A mistura de áudio dos aplicativos permitidos, com exclusão do Discord, do microfone, do próprio app e de sessões sem origem confiável, ainda não foi implementada nem validada. É bloqueada para evitar vazamentos. No Windows 10 comum (ex.: build 19045) e no Linux, o áudio de janela também fica desativado porque a API por processo usada pelo helper não está disponível. Uma aba do Discord aberta em navegador não pode ser separada das demais abas pelo processo; portanto, não selecione o navegador como fonte de áudio se ele estiver reproduzindo Discord. A exclusão do Discord **não está garantida** até haver teste em máquinas reais.
+Ao compartilhar **um monitor**, a transmissão é apenas de vídeo. A mistura de áudio dos aplicativos permitidos, com exclusão do Discord, do microfone, do próprio app e de sessões sem origem confiável, ainda não foi implementada nem validada. É bloqueada para evitar vazamentos. No Windows 10 2004 ou posterior, o app tenta iniciar a captura de áudio da janela; se a API não funcionar naquela instalação, mostra o erro e mantém o vídeo sem áudio. No Linux, o áudio fica desativado. Uma aba do Discord aberta em navegador não pode ser separada das demais abas pelo processo; portanto, não selecione o navegador como fonte de áudio se ele estiver reproduzindo Discord. A exclusão do Discord **não está garantida** até haver teste em máquinas reais.
 
-A [documentação da Microsoft sobre `AUDIOCLIENT_PROCESS_LOOPBACK_PARAMS`](https://learn.microsoft.com/en-us/windows/win32/api/audioclientactivationparams/ns-audioclientactivationparams-audioclient_process_loopback_params) especifica como requisito mínimo o build 20348. Enumerar sessões de áudio no Windows 10 comum identifica parte das origens, mas não fornece uma API nativa equivalente para capturar separadamente cada sessão sem driver ou componente adicional. Por isso o app não usa loopback agregado como substituto.
+A [documentação da Microsoft sobre `AUDIOCLIENT_PROCESS_LOOPBACK_PARAMS`](https://learn.microsoft.com/en-us/windows/win32/api/audioclientactivationparams/ns-audioclientactivationparams-audioclient_process_loopback_params) especifica como requisito mínimo o build 20348. Porém, o [projeto `win-capture-audio` do OBS](https://github.com/bozbez/win-capture-audio) relata que a mesma API também funciona em instalações atualizadas do Windows 10 2004 ou posterior. Por isso o app faz a tentativa real de inicialização nessas versões, em vez de rejeitá-las pelo número do build. A documentação oficial não garante esse funcionamento; o app não usa loopback agregado como substituto.
 
 ## Ping e reports de logs
 

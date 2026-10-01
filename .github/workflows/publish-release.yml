@@ -24,9 +24,10 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          mv 'release/GoLive P2P-0.3.0.AppImage' release/GoLive-P2P-0.3.0.AppImage
+          VERSION=$(node -p "require('./package.json').version")
+          mv "release/GoLive P2P-${VERSION}.AppImage" "release/GoLive-P2P-${VERSION}.AppImage"
           cd release
-          sha256sum GoLive-P2P-Portable-0.3.0.exe GoLive-P2P-0.3.0.AppImage > SHA256SUMS-0.3.0.txt
-          test $(stat -c%s GoLive-P2P-Portable-0.3.0.exe) -gt 50000000
-          test $(stat -c%s GoLive-P2P-0.3.0.AppImage) -gt 50000000
-          gh release upload v0.3.0 GoLive-P2P-Portable-0.3.0.exe GoLive-P2P-0.3.0.AppImage SHA256SUMS-0.3.0.txt --clobber
+          sha256sum "GoLive-P2P-Portable-${VERSION}.exe" "GoLive-P2P-${VERSION}.AppImage" > "SHA256SUMS-${VERSION}.txt"
+          test $(stat -c%s "GoLive-P2P-Portable-${VERSION}.exe") -gt 50000000
+          test $(stat -c%s "GoLive-P2P-${VERSION}.AppImage") -gt 50000000
+          gh release upload "v${VERSION}" "GoLive-P2P-Portable-${VERSION}.exe" "GoLive-P2P-${VERSION}.AppImage" "SHA256SUMS-${VERSION}.txt" --clobber

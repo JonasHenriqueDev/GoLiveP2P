@@ -3,6 +3,7 @@ import { spawn } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { release } from 'node:os';
 import { join } from 'node:path';
+import { canTryProcessLoopback } from './audio-platform';
 
 let capture: ReturnType<typeof spawn> | null = null;
 const intentionalStops = new WeakSet<object>();
@@ -12,10 +13,9 @@ function helperPath() {
 }
 export function audioSupport(): { available: boolean; message: string } {
   if (process.platform !== 'win32') return { available: false, message: 'Áudio filtrado por aplicativo disponível somente no Windows compatível.' };
-  const build = Number(release().split('.')[2] || 0);
-  if (build < 20348) return { available: false, message: 'Este Windows não oferece a API de áudio por processo. O áudio foi desativado para proteger o Discord.' };
+  if (!canTryProcessLoopback(process.platform, release())) return { available: false, message: 'Áudio por processo requer Windows 10 2004 ou posterior; vídeo continua disponível.' };
   if (!existsSync(helperPath())) return { available: false, message: 'Módulo nativo de áudio não encontrado.' };
-  return { available: true, message: 'Áudio da janela por processo disponível em caráter experimental; requer validação em Windows real.' };
+  return { available: true, message: 'Áudio da janela: o aplicativo testará a API por processo ao iniciar. Se falhar, o vídeo continua sem áudio.' };
 }
 export function stopAudioCapture() {
   if (capture) {

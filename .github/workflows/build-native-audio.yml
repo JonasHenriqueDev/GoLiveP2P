@@ -1,0 +1,16 @@
+name: Build Windows audio helper
+on:
+  workflow_dispatch:
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ilammy/msvc-dev-cmd@v1
+      - name: Compile native helper
+        shell: cmd
+        run: cl /nologo /std:c++17 /EHsc /O2 /DUNICODE /D_UNICODE native\windows\audio-capture.cpp /Fe:native\windows\bin\audio-capture.exe /link ole32.lib mmdevapi.lib
+      - uses: actions/upload-artifact@v4
+        with:
+          name: audio-capture-win64
+          path: native/windows/bin/audio-capture.exe

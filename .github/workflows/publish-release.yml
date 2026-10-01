@@ -7,8 +7,8 @@ permissions:
   contents: write
 
 jobs:
-  publish:
-    runs-on: ubuntu-latest
+  windows:
+    runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -19,17 +19,63 @@ jobs:
       - run: npm run typecheck
       - run: npm run lint
       - run: npm test
-      - run: npm run build:all
-      - name: Verify complete executables and upload
+      - run: npm run build:win
+      - name: Verify Windows updater files
+        shell: pwsh
+        run: |
+          $version = node -p "require('./package.json').version"
+          $setup = "release/GoLive-P2P-Setup-$version.exe"
+          if (-not (Test-Path $setup) -or (Get-Item $setup).Length -lt 50000000) { throw 'Installer missing or incomplete' }
+          if (-not (Test-Path "$setup.blockmap")) { throw 'Blockmap missing' }
+          if (-not (Test-Path 'release/latest.yml')) { throw 'Update manifest missing' }
+          if (-not (Test-Path 'release/win-unpacked/resources/app-update.yml')) { throw 'Updater configuration missing from package' }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-release
+          path: |
+            release/GoLive-P2P-Setup-*.exe
+            release/GoLive-P2P-Setup-*.exe.blockmap
+            release/latest.yml
+          if-no-files-found: error
+
+  linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - run: npm run build:linux
+      - name: Verify Linux AppImage
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          mv "release/GoLive P2P-${VERSION}.AppImage" "release/GoLive-P2P-${VERSION}.AppImage"
+          test $(stat -c%s "release/GoLive-P2P-${VERSION}.AppImage") -gt 50000000
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux-release
+          path: release/GoLive-P2P-*.AppImage
+          if-no-files-found: error
+
+  publish:
+    needs: [windows, linux]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: '*-release'
+          merge-multiple: true
+          path: dist
+      - name: Verify complete files and publish
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           VERSION=$(node -p "require('./package.json').version")
-          mv "release/GoLive P2P-${VERSION}.AppImage" "release/GoLive-P2P-${VERSION}.AppImage"
-          cd release
+          cd dist
           sha256sum "GoLive-P2P-Setup-${VERSION}.exe" "GoLive-P2P-${VERSION}.AppImage" > "SHA256SUMS-${VERSION}.txt"
-          test $(stat -c%s "GoLive-P2P-Setup-${VERSION}.exe") -gt 50000000
-          test $(stat -c%s "GoLive-P2P-${VERSION}.AppImage") -gt 50000000
           test -s latest.yml
           test -s "GoLive-P2P-Setup-${VERSION}.exe.blockmap"
           gh release upload "v${VERSION}" "GoLive-P2P-Setup-${VERSION}.exe" "GoLive-P2P-Setup-${VERSION}.exe.blockmap" latest.yml "GoLive-P2P-${VERSION}.AppImage" "SHA256SUMS-${VERSION}.txt" --clobber

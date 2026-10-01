@@ -35,10 +35,10 @@ npm run typecheck
 npm test
 npm run build          # instalador Windows
 npm run build:linux    # AppImage Linux
-npm run build:all      # ambos os pacotes
+npm run build:all      # ambos os pacotes (requer Wine no Linux)
 ```
 
-Os artefatos ficam em `release/`. Compile preferencialmente cada pacote em sua plataforma e valide a captura em computadores reais. O instalador Windows não exige configuração manual de áudio nem privilégios de administrador; o AppImage pode precisar de `chmod +x`.
+Os artefatos ficam em `release/`. Compile preferencialmente cada pacote em sua plataforma e valide a captura em computadores reais. No Windows, use `npm run build`; no Linux, use `npm run build:linux`. Para gerar ambos no Linux, instale Wine. O instalador Windows não exige configuração manual de áudio nem privilégios de administrador; o AppImage pode precisar de `chmod +x`.
 
 ## Como usar
 

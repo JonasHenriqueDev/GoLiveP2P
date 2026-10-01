@@ -9,6 +9,7 @@ export function normalizeBitrate(mbps: number): number {
 
 export class Mesh {
   private pcs = new Map<string, RTCPeerConnection>();
+  private remoteStreams = new Map<string, MediaStream>();
   private pending = new Map<string, RTCIceCandidateInit[]>();
   private restartAttempts = new Map<string, number>();
   private targetBitrate = 6_000_000;
@@ -25,7 +26,19 @@ export class Mesh {
     pc.onicecandidate = event => {
       if (event.candidate) this.send({ type: 'ice-candidate', to: id, candidate: { ...event.candidate.toJSON(), candidate: event.candidate.candidate } });
     };
-    pc.ontrack = event => this.onRemote(event.streams[0] || new MediaStream([event.track]));
+    pc.ontrack = event => {
+      let stream = this.remoteStreams.get(id);
+      if (!stream) {
+        stream = new MediaStream();
+        this.remoteStreams.set(id, stream);
+      }
+      const tracks = event.streams[0]?.getTracks() || [event.track];
+      for (const track of tracks) {
+        if (!stream.getTracks().some(item => item.id === track.id)) stream.addTrack(track);
+      }
+      console.info('[WebRTC] remote tracks', id, stream.getTracks().map(track => ({ kind: track.kind, enabled: track.enabled, muted: track.muted })));
+      this.onRemote(stream);
+    };
     pc.onconnectionstatechange = () => {
       this.onState(id, current.connectionState);
       if (current.connectionState === 'connected') this.restartAttempts.delete(id);
@@ -129,6 +142,7 @@ export class Mesh {
   remove(id: string) {
     this.pcs.get(id)?.close();
     this.pcs.delete(id);
+    this.remoteStreams.delete(id);
     this.pending.delete(id);
     this.restartAttempts.delete(id);
   }

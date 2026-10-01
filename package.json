@@ -1,6 +1,6 @@
 {
   "name": "golive-p2p",
-  "version": "0.5.0-native.2",
+  "version": "0.5.0-native.3",
   "private": true,
   "type": "module",
   "main": "out/main/index.js",

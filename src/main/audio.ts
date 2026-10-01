@@ -4,6 +4,7 @@ import { existsSync } from 'node:fs';
 import { release } from 'node:os';
 import { join } from 'node:path';
 import { canTryProcessLoopback } from './audio-platform';
+import { explainAudioFailure } from './audio-errors';
 
 let capture: ReturnType<typeof spawn> | null = null;
 const intentionalStops = new WeakSet<object>();
@@ -63,10 +64,10 @@ export async function startAudioCapture(sourceId: string, window: BrowserWindow)
       clearTimeout(timeout);
       if (capture === child) capture = null;
       const message = stderr.trim().split('\n').filter(line => !line.includes('READY')).join(' ').trim() || 'código ' + code;
-      if (!ready) reject(new Error('Áudio indisponível: ' + message));
+      if (!ready) reject(new Error(explainAudioFailure(message)));
       else if (!intentionalStops.has(child) && !window.isDestroyed()) {
         console.warn('[Audio] process capture stopped', message);
-        window.webContents.send('audio:error', 'Captura de áudio encerrada: ' + message);
+        window.webContents.send('audio:error', 'Captura de áudio encerrada: ' + explainAudioFailure(message));
       }
     });
   });

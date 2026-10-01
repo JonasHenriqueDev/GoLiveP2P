@@ -1,6 +1,12 @@
 import type { TailscaleStatus } from '../services/tailscale/status';
+import type { UpdateState } from '../main/updater';
 declare global {interface Window {golive:{
  platform:string;
+ systemInfo:()=>Promise<{name:string;release:string;arch:string}>;
+ updateState:()=>Promise<UpdateState>;
+ installUpdate:()=>Promise<boolean>;
+ setSessionActive:(active:boolean)=>void;
+ onUpdateState:(callback:(state:UpdateState)=>void)=>(()=>void);
  tailscaleStatus:()=>Promise<TailscaleStatus>;
  discoverHosts:()=>Promise<{ip:string;name:string;participants:number;full:boolean}[]>;
  pingPeer:(ip:string)=>Promise<{ms:number|null;route:'direct'|'DERP'|'unknown'}>;

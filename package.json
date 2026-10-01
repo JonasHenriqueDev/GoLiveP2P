@@ -1,21 +1,22 @@
 {
   "name": "golive-p2p",
-  "version": "0.3.1",
+  "version": "0.4.0",
   "private": true,
   "type": "module",
   "main": "out/main/index.js",
   "scripts": {
     "dev": "electron-vite dev",
-    "build": "electron-vite build && electron-builder --win portable --publish never",
+    "build": "electron-vite build && electron-builder --win nsis --publish never",
     "build:linux": "electron-vite build && electron-builder --linux AppImage --publish never",
     "typecheck": "tsc --noEmit",
     "lint": "eslint .",
     "test": "vitest run",
     "format": "prettier --write .",
-    "build:win": "electron-vite build && electron-builder --win portable --publish never",
-    "build:all": "electron-vite build && electron-builder --win portable --linux AppImage --publish never"
+    "build:win": "electron-vite build && electron-builder --win nsis --publish never",
+    "build:all": "electron-vite build && electron-builder --win nsis --linux AppImage --publish never"
   },
   "dependencies": {
+    "electron-updater": "^6.8.9",
     "react": "^19.1.1",
     "react-dom": "^19.1.1",
     "ws": "^8.18.3",
@@ -49,6 +50,7 @@
     "directories": {
       "output": "release"
     },
+    "publish": [{ "provider": "github", "owner": "JonasHenriqueDev", "repo": "GoLiveP2P" }],
     "linux": {
       "target": [
         "AppImage"
@@ -57,15 +59,22 @@
     },
     "win": {
       "target": [
-        "portable"
+        "nsis"
       ],
-      "artifactName": "GoLive-P2P-Portable-${version}.${ext}",
+      "artifactName": "GoLive-P2P-Setup-${version}.${ext}",
       "extraResources": [
         {
           "from": "native/windows/bin/audio-capture.exe",
           "to": "audio-capture.exe"
         }
       ]
+    },
+    "nsis": {
+      "oneClick": true,
+      "perMachine": false,
+      "allowElevation": false,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true
     }
   }
 }

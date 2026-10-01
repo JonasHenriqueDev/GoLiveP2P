@@ -27,7 +27,9 @@ jobs:
           VERSION=$(node -p "require('./package.json').version")
           mv "release/GoLive P2P-${VERSION}.AppImage" "release/GoLive-P2P-${VERSION}.AppImage"
           cd release
-          sha256sum "GoLive-P2P-Portable-${VERSION}.exe" "GoLive-P2P-${VERSION}.AppImage" > "SHA256SUMS-${VERSION}.txt"
-          test $(stat -c%s "GoLive-P2P-Portable-${VERSION}.exe") -gt 50000000
+          sha256sum "GoLive-P2P-Setup-${VERSION}.exe" "GoLive-P2P-${VERSION}.AppImage" > "SHA256SUMS-${VERSION}.txt"
+          test $(stat -c%s "GoLive-P2P-Setup-${VERSION}.exe") -gt 50000000
           test $(stat -c%s "GoLive-P2P-${VERSION}.AppImage") -gt 50000000
-          gh release upload "v${VERSION}" "GoLive-P2P-Portable-${VERSION}.exe" "GoLive-P2P-${VERSION}.AppImage" "SHA256SUMS-${VERSION}.txt" --clobber
+          test -s latest.yml
+          test -s "GoLive-P2P-Setup-${VERSION}.exe.blockmap"
+          gh release upload "v${VERSION}" "GoLive-P2P-Setup-${VERSION}.exe" "GoLive-P2P-Setup-${VERSION}.exe.blockmap" latest.yml "GoLive-P2P-${VERSION}.AppImage" "SHA256SUMS-${VERSION}.txt" --clobber

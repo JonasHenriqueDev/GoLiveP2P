@@ -1,6 +1,15 @@
 import { contextBridge, ipcRenderer } from 'electron';
 const api={
  platform:process.platform,
+ systemInfo:()=>ipcRenderer.invoke('system:info'),
+ updateState:()=>ipcRenderer.invoke('update:state'),
+ installUpdate:()=>ipcRenderer.invoke('update:install'),
+ setSessionActive:(active:boolean)=>ipcRenderer.send('update:session-active',active),
+ onUpdateState:(callback:(state:unknown)=>void)=>{
+  const listener=(_event:Electron.IpcRendererEvent,state:unknown)=>callback(state);
+  ipcRenderer.on('update:state',listener);
+  return ()=>ipcRenderer.removeListener('update:state',listener);
+ },
  tailscaleStatus:()=>ipcRenderer.invoke('tailscale:status'),
  discoverHosts:()=>ipcRenderer.invoke('tailscale:discover'),
  pingPeer:(ip:string)=>ipcRenderer.invoke('tailscale:ping',ip),

@@ -7,12 +7,15 @@ import { StatsCollector, type StreamStats } from '../../services/stats/stats';
 import { NativeAudioBridge } from './audio/native-audio';
 import type { Peer, ServerMessage } from '../../shared/protocol';
 import type { TailscaleStatus } from '../../services/tailscale/status';
+import type { UpdateState } from '../../main/updater';
 import './style.css';
 
 type Source = { id: string; name: string; thumbnail: string; kind: 'screen' | 'window' };
 type Host = { ip: string; name: string; participants: number; full: boolean };
 function App() {
   const [tailscale, setTailscale] = useState<TailscaleStatus>({ installed: false, connected: false, ip: null, message: 'Verificando…' });
+  const [system, setSystem] = useState<{name:string;release:string;arch:string}|null>(null);
+  const [update, setUpdate] = useState<UpdateState>({ status: 'disabled' });
   const [name, setName] = useState('');
   const [host, setHost] = useState('');
   const [roomHost, setRoomHost] = useState(false);
@@ -21,6 +24,7 @@ function App() {
   const [streamer, setStreamer] = useState<string | null>(null);
   const [remote, setRemote] = useState<MediaStream | null>(null);
   const [local, setLocal] = useState(false);
+  const [sidebarOpen, setSidebarOpen] = useState(true);
   const [sources, setSources] = useState<Source[]>([]);
   const [quality, setQuality] = useState<Quality>('1080p60');
   const [bitrate, setBitrate] = useState(6);
@@ -37,6 +41,8 @@ function App() {
   const [signalState, setSignalState] = useState('disconnected');
   const [stats, setStats] = useState<StreamStats | null>(null);
   const video = useRef<HTMLVideoElement>(null);
+  const localVideo = useRef<HTMLVideoElement>(null);
+  const stage = useRef<HTMLElement>(null);
   const client = useRef(new SignalingClient());
   const mesh = useRef(new Mesh(message => client.current.send(message)));
   const audioBridge = useRef<NativeAudioBridge | null>(null);
@@ -56,7 +62,15 @@ function App() {
   useEffect(() => { qualityRef.current = quality; }, [quality]);
   useEffect(() => { bitrateRef.current = bitrate; }, [bitrate]);
   useEffect(() => { streamerRef.current = streamer; }, [streamer]);
-  useEffect(() => { if (video.current) video.current.srcObject = remote; }, [remote]);
+  useEffect(() => { if (video.current) video.current.srcObject = remote; }, [remote, local, streamer]);
+  useEffect(() => { if (localVideo.current) localVideo.current.srcObject = local ? mesh.current.stream : null; }, [local]);
+  useEffect(() => { if (!local && !streamer) setSidebarOpen(true); }, [local, streamer]);
+  useEffect(() => { window.golive.setSessionActive(!!self); }, [self]);
+
+  useEffect(() => {
+    void window.golive.updateState().then(setUpdate).catch(() => {});
+    return window.golive.onUpdateState(setUpdate);
+  }, []);
 
   useEffect(() => {
     const refresh = () => { void window.golive.tailscaleStatus().then(status => setTailscale(status)).catch(() => {}); };
@@ -66,12 +80,19 @@ function App() {
   }, []);
 
   useEffect(() => {
+    void window.golive.systemInfo().then(setSystem).catch(() => {});
     void window.golive.audioSupport().then(setAudioCapability).catch(() => {});
     const original = { info: console.info, warn: console.warn, error: console.error };
     for (const level of ['info', 'warn', 'error'] as const) {
       console[level] = (...args: unknown[]) => {
         original[level](...args);
-        window.golive.log(level, 'Renderer', args.map(arg => arg instanceof Error ? arg.stack || arg.message : String(arg)).join(' ').slice(0, 4000));
+        window.golive.log(level, 'Renderer', args.map(arg => {
+          if (arg instanceof Error) return arg.stack || arg.message;
+          if (typeof arg === 'object' && arg !== null) {
+            try { return JSON.stringify(arg); } catch { return String(arg); }
+          }
+          return String(arg);
+        }).join(' ').slice(0, 4000));
       };
     }
     const onError = (event: ErrorEvent) => window.golive.log('error', 'Renderer', event.message + ' ' + (event.error?.stack || ''));
@@ -203,6 +224,7 @@ function App() {
   async function start(id: string) {
     try {
       await window.golive.selectSource(id);
+      console.info('[Stream] start requested', { source: id.startsWith('screen:') ? 'monitor' : 'janela', audioRequested: audio, quality, bitrateMbps: bitrateRef.current });
       setSources([]);
       const config = preset(quality);
       const stream = await navigator.mediaDevices.getDisplayMedia({
@@ -211,6 +233,7 @@ function App() {
       });
       if (audio && id.startsWith('screen:')) {
         setAudioActive(false);
+        console.warn('[Audio] monitor audio blocked: app mixing unavailable');
         setError('Vídeo iniciado sem áudio: a mistura de aplicativos permitidos ainda não foi validada.');
       } else if (audio) {
         try {
@@ -218,6 +241,7 @@ function App() {
           setAudioActive(true);
         } catch (cause) {
           setAudioActive(false);
+          console.error('[Audio] capture failed', cause);
           setError('Vídeo iniciado sem áudio: ' + String(cause));
         }
       }
@@ -317,6 +341,10 @@ function App() {
     <header><div className="logo">◉ <span>GoLive</span> P2P</div>
       <div className={'status ' + (tailscale.connected ? 'ok' : 'bad')}>● {tailscale.connected ? 'Tailscale conectado' : 'Tailscale desconectado'} <small>{tailscale.ip || ''}</small></div>
     </header>
+    {(update.status === 'downloading' || update.status === 'ready') && <div className="updateBanner">
+      <span>{update.status === 'ready' ? `Atualização ${update.version || ''} pronta para instalar` : `Baixando atualização: ${Math.round(update.percent || 0)}%`}</span>
+      {update.status === 'ready' && <button className="small" onClick={() => void window.golive.installUpdate()}>Reiniciar e atualizar</button>}
+    </div>}
     {!self ? <section className="welcome">
       <h1>Compartilhe sua tela.<br/><em>Direto para seu grupo.</em></h1>
       <p>Vídeo P2P pela sua tailnet. Até cinco pessoas, sem conta nem servidor de vídeo.</p>
@@ -331,13 +359,15 @@ function App() {
       </div>
       <p className="hint">{tailscale.message}</p>
     </section> :
-    <div className="layout">
-      <aside className="card"><div className="row"><h2>Sala</h2><button className="text" onClick={leave}>Sair</button></div>
-        <p>Participantes: {all.length} / 5</p>
+    <div className={'layout ' + (local || streamer ? 'streamLayout ' : '') + (sidebarOpen ? '' : 'sidebarHidden')}>
+      {sidebarOpen && <aside className="roomSidebar"><div className="sidebarTitle"><h2>Sala</h2><small>{all.length} / 5 participantes</small></div>
         <div className="participants">{all.map(peer => <div key={peer.id} className="participant"><span className="dot"/> {peer.name}{peer.id === self.id ? ' (Você)' : ''}{peer.id === streamer ? ' · transmitindo' : ''}
           {peer.id !== self.id && <span className="ping" title={ping[peer.id]?.route || 'Ping indisponível'}>{ping[peer.id]?.ms == null ? '— ms' : ping[peer.id].ms + ' ms'}</span>}</div>)}</div>
         {roomHost && <div className="host">IP para convidados<strong>{host}</strong></div>}
+        <details className="sidebarDetails"><summary>Diagnóstico e logs</summary>
         <div className="diagnostics"><h3>Diagnóstico</h3>
+          <div>Sistema <strong>{system ? system.name + ' · ' + system.release + ' · ' + system.arch : 'Verificando…'}</strong></div>
+          <div>Atualização <strong>{update.status === 'up-to-date' ? 'Atualizado' : update.status === 'error' ? 'Falhou; tentará ao reiniciar' : update.status}</strong></div>
           <div>Tailscale <strong>{tailscale.connected ? 'Connected' : 'Disconnected'}</strong></div>
           <div>IP local <strong>{tailscale.ip || '—'}</strong></div>
           <div>Signaling <strong>{signalState}</strong></div>
@@ -355,24 +385,26 @@ function App() {
           </label>
           <button className="secondary small" disabled={!logRecipient} onClick={() => void sendMyLog()}>Enviar log</button>
         </div>
-      </aside>
-      <section className="stage card">{local ? <>
-        <div className="eyebrow">● TRANSMITINDO</div><h1>Sua tela está ao vivo</h1>
-        {qualitySelector}
-        {bitrateSelector}
-        <p>Áudio: {audioActive ? 'ativo, com filtro por processo' : 'desativado'}</p>
-        <p>Espectadores: {peers.length} · Upload total: {stats?.totalBitrate || 0} Mbps</p>
-        <div className="peerStats">{peers.map(peer => {
-          const detail = stats?.peers[peer.id];
-          return <div key={peer.id}><strong>{peer.name}</strong><span>{detail?.resolution || '—'} · {detail?.fps || 0} FPS · {detail?.bitrate || 0} Mbps · RTT {detail?.rtt ?? '—'} ms · perda {detail?.lost || 0} · {detail?.codec || '—'} · {detail?.connection || '—'}</span></div>;
-        })}</div>
-        <button className="danger" onClick={stop}>Parar transmissão</button>
-      </> : streamer ? <>
-        <div className="eyebrow">{streamerName} está compartilhando</div>
-        <video ref={video} autoPlay playsInline controls className="video"/>
-        <div className="row"><span>{peerStats?.resolution || 'Aguardando vídeo'} · {peerStats?.fps || 0} FPS · {peerStats?.bitrate || 0} Mbps · RTT {peerStats?.rtt ?? '—'} ms · perda {peerStats?.lost || 0}</span>
-          <button className="secondary small" onClick={() => video.current?.requestFullscreen()}>Tela cheia</button></div>
-      </> : <>
+        </details>
+        <div className="sidebarFooter"><span>● {signalState === 'connected' ? 'Conectado à sala' : signalState}</span><button className="secondary small" onClick={leave}>Sair</button></div>
+      </aside>}
+      {local || streamer ? <section ref={stage} className="streamStage" tabIndex={0}>
+        {local ? <video ref={localVideo} autoPlay playsInline muted className="streamVideo" aria-label="Prévia da sua transmissão"/>
+          : <video ref={video} autoPlay playsInline className="streamVideo" aria-label="Transmissão recebida"/>}
+        <div className="streamOverlay">
+          <div className="streamTop">
+            <span>{local ? '● Sua transmissão · prévia' : `● ${streamerName || 'Participante'} está compartilhando`}</span>
+            <span>{local ? `${peers.length} espectadores · ${stats?.totalBitrate || 0} Mbps` : `${peerStats?.resolution || 'Aguardando vídeo'} · ${peerStats?.fps || 0} FPS · RTT ${peerStats?.rtt ?? '—'} ms`}</span>
+          </div>
+          {local && <div className="streamSettings">{qualitySelector}{bitrateSelector}<small>Áudio: {audioActive ? 'ativo' : 'desativado'}</small></div>}
+          <div className="streamControls">
+            <button className="secondary small" onClick={() => setSidebarOpen(value => !value)}>{sidebarOpen ? 'Ocultar opções' : 'Mostrar opções'}</button>
+            <button className="secondary small" onClick={() => void stage.current?.requestFullscreen()}>Tela cheia</button>
+            {local && <button className="danger small" onClick={stop}>Parar transmissão</button>}
+            <button className="secondary small" onClick={leave}>Sair da sala</button>
+          </div>
+        </div>
+      </section> : <section className="stage card"><>
         <div className="empty">▣</div><h1>Pronto para compartilhar?</h1>
         <p>Selecione a qualidade e escolha uma tela ou janela.</p>
         {qualitySelector}
@@ -380,11 +412,13 @@ function App() {
         <label className="check"><input type="checkbox" checked={audio} disabled={!audioCapability.available} onChange={event => setAudio(event.target.checked)}/> Áudio do aplicativo (janela)</label>
         <p className="audioHint">{audioCapability.message}</p>
         <button onClick={() => void showSources()}>Compartilhar tela</button>
-      </>}</section>
+      </></section>}
     </div>}
     {sources.length > 0 && <div className="modal"><div className="modalBody card">
       <div className="row"><h2>Escolha uma fonte</h2><button className="text" onClick={() => setSources([])}>Fechar</button></div>
       <p>Janela: áudio do aplicativo selecionado quando disponível. Monitor: vídeo sem áudio enquanto a mistura segura por aplicativo não é validada. Microfone e Discord não são capturados como fontes.</p>
+      {window.golive.platform === 'win32' && Number(system?.release.split('.')[2]) < 20348 &&
+        <p>Ao transmitir uma janela neste Windows, a borda colorida é mostrada pelo sistema. Para transmitir sem essa borda, selecione um monitor inteiro.</p>}
       <div className="sourceGrid">{sources.map(source => <button className="source" key={source.id} onClick={() => void start(source.id)}><img src={source.thumbnail}/><small>{source.kind === 'screen' ? 'Monitor inteiro' : 'Aplicativo / janela'}</small><span>{source.name}</span></button>)}</div>
     </div></div>}
     {incomingLog && <div className="modal"><div className="modalBody card logDialog">

@@ -1,6 +1,8 @@
 import { app, dialog } from 'electron';
 import { appendFileSync, existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { arch, release, version } from 'node:os';
+import { inspect } from 'node:util';
 import { LOG_LIMIT } from '../shared/protocol';
 
 type Level = 'info' | 'warn' | 'error';
@@ -9,7 +11,11 @@ const recent: string[] = [];
 function safe(value: unknown): string {
   if (value instanceof Error) return value.stack || value.message;
   if (typeof value === 'string') return value;
-  try { return JSON.stringify(value); } catch { return String(value); }
+  if (Array.isArray(value)) return value.map(safe).join(' ');
+  return inspect(value, { depth: 3, breakLength: Infinity, maxArrayLength: 20 });
+}
+export function systemInfo() {
+  return { name: version(), release: release(), arch: arch() };
 }
 export function record(level: Level, scope: string, message: unknown, details?: unknown) {
   const line = [new Date().toISOString(), level.toUpperCase(), '[' + scope.slice(0, 40) + ']', safe(message), details == null ? '' : safe(details)]
@@ -35,12 +41,13 @@ export function setupLogs() {
   }
   process.on('uncaughtException', error => { record('error', 'Main', error); app.exit(1); });
   process.on('unhandledRejection', error => record('error', 'Main', error));
-  record('info', 'App', 'Started', { version: app.getVersion(), platform: process.platform });
+  record('info', 'App', 'Started', { version: app.getVersion(), platform: process.platform, os: systemInfo() });
 }
 export function reportText(): string {
   let lines = recent;
   try { if (file) lines = readFileSync(file, 'utf8').split('\n'); } catch { /* Use in-memory records. */ }
-  const header = 'GoLive P2P diagnostics\nVersion: ' + app.getVersion() + '\nPlatform: ' + process.platform + '\n\n';
+  const os = systemInfo();
+  const header = 'GoLive P2P diagnostics\nVersion: ' + app.getVersion() + '\nPlatform: ' + process.platform + '\nOS: ' + os.name + ' (' + os.release + '; ' + os.arch + ')\n\n';
   const body = Buffer.from(lines.join('\n'), 'utf8');
   return header + body.subarray(Math.max(0, body.length - (LOG_LIMIT - 256))).toString('utf8');
 }

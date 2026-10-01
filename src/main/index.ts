@@ -1,4 +1,4 @@
-import { app, BrowserWindow, desktopCapturer, ipcMain, session } from 'electron';
+import { app, BrowserWindow, desktopCapturer, ipcMain, Menu, session } from 'electron';
 import { join } from 'node:path';
 import { RoomServer } from '../services/signaling/room';
 import { getTailscaleStatus } from '../services/tailscale/status';
@@ -6,16 +6,19 @@ import { discoverHosts } from '../services/tailscale/discovery';
 import { PORT } from '../shared/protocol';
 import { pingPeer } from '../services/tailscale/ping';
 import { audioSupport, startAudioCapture, stopAudioCapture } from './audio';
-import { record, reportText, saveReport, setupLogs } from './logs';
+import { record, reportText, saveReport, setupLogs, systemInfo } from './logs';
+import { setupUpdater } from './updater';
 app.commandLine.appendSwitch('disable-features','WebRtcHideLocalIpsWithMdns');
 let room:RoomServer|null=null;
 let selectedSource:string|null=null;
 function createWindow(){
- const win=new BrowserWindow({width:1120,height:780,minWidth:800,minHeight:600,webPreferences:{preload:join(__dirname,'../preload/index.mjs'),contextIsolation:true,nodeIntegration:false,sandbox:false}});
+ const win=new BrowserWindow({width:1120,height:780,minWidth:640,minHeight:480,webPreferences:{preload:join(__dirname,'../preload/index.mjs'),contextIsolation:true,nodeIntegration:false,sandbox:false}});
  if(process.env.ELECTRON_RENDERER_URL)win.loadURL(process.env.ELECTRON_RENDERER_URL);else win.loadFile(join(__dirname,'../renderer/index.html'));
+ return win;
 }
 app.whenReady().then(()=>{
  setupLogs();
+ Menu.setApplicationMenu(null);
  session.defaultSession.setDisplayMediaRequestHandler(async (_request,callback)=>{
   const sources=await desktopCapturer.getSources({types:['screen','window']});
   const source=sources.find(s=>s.id===selectedSource);
@@ -24,13 +27,20 @@ app.whenReady().then(()=>{
   callback({ video: source });
  });
  ipcMain.handle('tailscale:status',getTailscaleStatus);
+ ipcMain.handle('system:info',systemInfo);
  ipcMain.handle('tailscale:discover',discoverHosts);
  ipcMain.handle('tailscale:ping',(_event,ip:string)=>pingPeer(ip));
  ipcMain.handle('audio:support',audioSupport);
- ipcMain.handle('audio:start',(event)=>{
+ ipcMain.handle('audio:start',async(event)=>{
   const window=BrowserWindow.fromWebContents(event.sender);
   if(!window||!selectedSource)throw new Error('Fonte de tela indisponível');
-  return startAudioCapture(selectedSource,window);
+  const kind=selectedSource.startsWith('screen:')?'monitor':'janela';
+  console.info('[Audio] capture requested',kind,systemInfo().release);
+  try { await startAudioCapture(selectedSource,window); }
+  catch(error) {
+   console.error('[Audio] capture failed',error);
+   throw error;
+  }
  });
  ipcMain.handle('audio:stop',stopAudioCapture);
  ipcMain.handle('logs:report',reportText);
@@ -50,8 +60,9 @@ app.whenReady().then(()=>{
   const sources=await desktopCapturer.getSources({types:['screen','window']});
   if(!sources.some(source=>source.id===id))throw new Error('Fonte de tela indisponível');
   selectedSource=id;
+  console.info('[Capture] selected source',id.startsWith('screen:')?'monitor':'janela',id);
  });
- createWindow();
+ setupUpdater(createWindow());
  app.on('activate',()=>{if(BrowserWindow.getAllWindows().length===0)createWindow();});
 });
 app.on('before-quit',()=>{stopAudioCapture();room?.close();});

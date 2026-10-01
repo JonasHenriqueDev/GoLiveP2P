@@ -4,22 +4,26 @@ Aplicativo desktop para compartilhar tela com até cinco pessoas na mesma tailne
 
 ## Plataformas e requisitos
 
-- Windows 10/11: executável portátil, plataforma principal. Vídeo de monitor e janela disponível. Áudio de janela tenta a API por processo no Windows 10 2004 (build 19041) ou posterior; o funcionamento depende das atualizações do Windows e ainda requer validação em dispositivos reais.
+- Windows 10/11: instalador por usuário, plataforma principal. Vídeo de monitor e janela disponível. Áudio de janela tenta a API por processo no Windows 10 2004 (build 19041) ou posterior; o funcionamento depende das atualizações do Windows e ainda requer validação em dispositivos reais.
 - Linux: AppImage. A captura de tela depende do compositor e, em Wayland, do xdg-desktop-portal. O áudio fica desativado até existir filtragem segura do Discord nessa plataforma.
 - Tailscale instalado, autenticado e conectado à mesma tailnet em cada computador.
 - Para desenvolvimento: Node.js 22+ e npm.
 
 O aplicativo não instala nem configura o Tailscale. Não exige IP público, abertura de portas no roteador, VPS, STUN ou TURN. As ACLs da tailnet e o firewall local precisam permitir TCP 47621 até o host e UDP entre os peers.
 
-## Downloads da versão 0.3.1
+## Downloads da versão 0.4.0
 
-Baixe os executáveis completos na [release v0.3.1](https://github.com/JonasHenriqueDev/GoLiveP2P/releases/tag/v0.3.1):
+Baixe os executáveis completos na [release v0.4.0](https://github.com/JonasHenriqueDev/GoLiveP2P/releases/tag/v0.4.0):
 
-- [Windows portátil (.exe)](https://github.com/JonasHenriqueDev/GoLiveP2P/releases/download/v0.3.1/GoLive-P2P-Portable-0.3.1.exe)
-- [Linux AppImage](https://github.com/JonasHenriqueDev/GoLiveP2P/releases/download/v0.3.1/GoLive-P2P-0.3.1.AppImage)
-- [Checksums SHA-256](https://github.com/JonasHenriqueDev/GoLiveP2P/releases/download/v0.3.1/SHA256SUMS-0.3.1.txt)
+- [Instalador Windows (.exe)](https://github.com/JonasHenriqueDev/GoLiveP2P/releases/download/v0.4.0/GoLive-P2P-Setup-0.4.0.exe)
+- [Linux AppImage](https://github.com/JonasHenriqueDev/GoLiveP2P/releases/download/v0.4.0/GoLive-P2P-0.4.0.AppImage)
+- [Checksums SHA-256](https://github.com/JonasHenriqueDev/GoLiveP2P/releases/download/v0.4.0/SHA256SUMS-0.4.0.txt)
 
-No Linux, execute `chmod +x GoLive-P2P-0.3.1.AppImage` antes de abrir.
+No Linux, execute `chmod +x GoLive-P2P-0.4.0.AppImage` antes de abrir.
+
+### Atualizações no Windows
+
+Instale a v0.4.0 uma vez pelo executável acima. As versões portáteis v0.3.x não têm atualização automática e exigem essa instalação inicial. Depois disso, o aplicativo consulta as releases públicas do GitHub ao abrir, baixa versões novas em segundo plano e instala automaticamente quando estiver fora de uma sala. Se você estiver em uma sala, a atualização aguarda a saída ou o encerramento do aplicativo. O painel mostra o progresso e oferece **Reiniciar e atualizar** quando a versão estiver pronta. Internet e acesso ao GitHub são necessários para procurar atualizações; a transmissão P2P continua independente disso. O AppImage Linux segue com atualização manual.
 
 ## Desenvolvimento e builds
 
@@ -29,12 +33,12 @@ npm run dev
 npm run lint
 npm run typecheck
 npm test
-npm run build          # .exe portátil Windows
+npm run build          # instalador Windows
 npm run build:linux    # AppImage Linux
 npm run build:all      # ambos os pacotes
 ```
 
-Os artefatos ficam em `release/`. Compile preferencialmente cada pacote em sua plataforma e valide a captura em computadores reais. O `.exe` portátil não precisa de instalação; o AppImage pode precisar de `chmod +x`.
+Os artefatos ficam em `release/`. Compile preferencialmente cada pacote em sua plataforma e valide a captura em computadores reais. O instalador Windows não exige configuração manual de áudio nem privilégios de administrador; o AppImage pode precisar de `chmod +x`.
 
 ## Como usar
 
@@ -63,6 +67,12 @@ O ping ao lado de cada participante é medido pela CLI `tailscale ping` e atuali
 
 **Baixar meu log TXT** abre uma caixa para escolher onde salvar o report local. **Enviar log** permite escolher outro participante. O servidor apenas encaminha o texto; o destinatário vê quem enviou e escolhe **Baixar TXT** ou **Ignorar**. O recebimento não salva arquivos automaticamente. O report contém eventos de informação, avisos e erros da aplicação e pode incluir caminhos locais ou endereços Tailscale; confira antes de enviá-lo.
 
+O report inclui nome, versão, build e arquitetura do sistema operacional. Ao iniciar uma transmissão, registra se a fonte escolhida foi monitor ou janela, se o áudio foi solicitado e o motivo informado pelo helper quando a captura de áudio falhar.
+
+## Borda na captura de janela
+
+No Windows 10, o Windows Graphics Capture usado pelo Chromium desenha uma borda colorida em torno da janela transmitida. O Electron não expõe uma opção confiável para removê-la nessa versão do sistema. A API de captura sem borda depende de recurso introduzido no build 20348 e de permissão específica do Windows. Compartilhar o monitor inteiro evita a borda da janela, mas não oferece o áudio filtrado do aplicativo. A remoção da borda em Windows 10 exigirá uma implementação nativa alternativa de vídeo; o aplicativo não promete removê-la nesta versão.
+
 ## Arquitetura
 
 - `src/main`: Electron, seleção de fonte e servidor ligado somente ao IP Tailscale.
@@ -74,6 +84,7 @@ O ping ao lado de cada participante é medido pela CLI `tailscale ping` e atuali
 - `src/services/stats`: getStats por peer a cada 2,5 segundos.
 - `native/windows`: helper C++ baseado na API oficial de áudio por processo do Windows. PCM é entregue diretamente a um AudioWorklet, que cria a track enviada pelo WebRTC.
 - `src/main/logs.ts`: log persistente rotativo e exportação por diálogo nativo.
+- `src/main/updater.ts`: atualização do instalador Windows a partir das releases públicas do GitHub.
 - `src/renderer`: interface React, diagnóstico e vídeo direto em `HTMLVideoElement`.
 
 O Chromium expõe candidatos ICE locais sem ofuscação mDNS para permitir a negociação do IPv4 Tailscale. Participantes da sala podem ver esses IPs locais no SDP. A mídia usa DTLS/SRTP e a tailnet usa WireGuard/Tailscale.

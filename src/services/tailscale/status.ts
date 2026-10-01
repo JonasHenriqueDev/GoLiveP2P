@@ -1,6 +1,6 @@
 import { execFile } from 'node:child_process';
 import { existsSync } from 'node:fs';
-import { join } from 'node:path';
+import { win32 } from 'node:path';
 import { promisify } from 'node:util';
 
 const exec = promisify(execFile);
@@ -21,7 +21,7 @@ export function tailscaleCommands(platform = process.platform, env = process.env
   const commands = [platform === 'win32' ? 'tailscale.exe' : 'tailscale'];
   if (platform === 'win32') {
     for (const root of [env.ProgramFiles, env['ProgramFiles(x86)'], env.LOCALAPPDATA]) {
-      if (root) commands.push(join(root, 'Tailscale', 'tailscale.exe'));
+      if (root) commands.push(win32.join(root, 'Tailscale', 'tailscale.exe'));
     }
   }
   return commands;

@@ -5,6 +5,6 @@ describe('Tailscale status',()=>{
  it('rejects stopped backend',()=>expect(parseTailscaleStatus('{"BackendState":"Stopped"}','100.101.2.3').connected).toBe(false));
  it('handles malformed JSON',()=>expect(parseTailscaleStatus('bad','').connected).toBe(false));
  it('finds the standard Windows installation when absent from PATH',()=>{
-  expect(tailscaleCommands('win32',{ProgramFiles:'C:\\Program Files'})).toContain('C:\\Program Files/Tailscale/tailscale.exe');
+  expect(tailscaleCommands('win32',{ProgramFiles:'C:\\Program Files'})).toContain('C:\\Program Files\\Tailscale\\tailscale.exe');
  });
 });

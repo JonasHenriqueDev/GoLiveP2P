@@ -1,0 +1,64 @@
+{
+  "name": "golive-p2p",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "out/main/index.js",
+  "scripts": {
+    "dev": "electron-vite dev",
+    "build": "electron-vite build && electron-builder --win portable",
+    "build:linux": "electron-vite build && electron-builder --linux AppImage",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint .",
+    "test": "vitest run",
+    "format": "prettier --write .",
+    "build:win": "electron-vite build && electron-builder --win portable"
+  },
+  "dependencies": {
+    "react": "^19.1.1",
+    "react-dom": "^19.1.1",
+    "ws": "^8.18.3",
+    "zod": "^4.1.11"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.36.0",
+    "@types/node": "^24.5.2",
+    "@types/react": "^19.1.13",
+    "@types/react-dom": "^19.1.9",
+    "@types/ws": "^8.18.1",
+    "@vitejs/plugin-react": "^4.7.0",
+    "electron": "^38.2.0",
+    "electron-builder": "^26.0.12",
+    "electron-vite": "^5.0.0",
+    "eslint": "^9.36.0",
+    "globals": "^16.4.0",
+    "prettier": "^3.6.2",
+    "typescript": "^5.9.2",
+    "typescript-eslint": "^8.44.1",
+    "vite": "^7.1.7",
+    "vitest": "^3.2.4"
+  },
+  "build": {
+    "appId": "dev.golive.p2p",
+    "productName": "GoLive P2P",
+    "files": [
+      "out/**/*",
+      "package.json"
+    ],
+    "directories": {
+      "output": "release"
+    },
+    "linux": {
+      "target": [
+        "AppImage"
+      ],
+      "category": "Network"
+    },
+    "win": {
+      "target": [
+        "portable"
+      ],
+      "artifactName": "GoLive-P2P-Portable-${version}.${ext}"
+    }
+  }
+}

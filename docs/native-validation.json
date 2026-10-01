@@ -3,7 +3,7 @@
   "releaseApproved": false,
   "windows10": false,
   "windows11": false,
-  "crossDevice": false,
+  "crossDevice": true,
   "audioExclusions": false,
   "latencyAndLoad": false,
   "installerInspected": false,

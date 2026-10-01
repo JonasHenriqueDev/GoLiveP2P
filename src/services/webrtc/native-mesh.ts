@@ -11,6 +11,7 @@ export class NativeMesh {
   onFrame: (peer: string, jpeg: string) => void = () => {};
   onError: (message: string) => void = () => {};
   onAudio: (active: boolean) => void = () => {};
+  onEncoder: (encoder: string) => void = () => {};
   private settings: CaptureSettings | null = null;
   private peers = new Set<string>();
   private pending = new Map<
@@ -65,6 +66,7 @@ export class NativeMesh {
   ) {
     this.listen();
     const result = await window.golive.mediaRequest('start', settings);
+    this.onEncoder(result.encoder);
     this.settings = settings;
     this.stream = true;
     beforeOffer?.();

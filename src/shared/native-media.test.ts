@@ -11,6 +11,12 @@ const config = {
   audio: false,
 };
 describe('native media boundary', () => {
+  it('accepts automatic native selection and limits PrintWindow to windows', () => {
+    expect(captureSettings.safeParse({...config, method: 'auto'}).success).toBe(true);
+    expect(captureSettings.safeParse({...config, source: 'window:123', method: 'auto'}).success).toBe(true);
+    expect(captureSettings.safeParse({...config, source: 'window:123', method: 'printwindow'}).success).toBe(true);
+    expect(captureSettings.safeParse({...config, method: 'printwindow'}).success).toBe(false);
+  });
   it('accepts explicit monitor DXGI and covered-window WGC', () => {
     expect(captureSettings.safeParse(config).success).toBe(true);
     expect(

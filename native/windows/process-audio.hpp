@@ -26,12 +26,12 @@ inline std::vector<Process> snapshot() {
       std::transform(item.name.begin(), item.name.end(), item.name.begin(), towlower);
       HANDLE handle = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, item.pid);
       if (handle) {
-        wchar_t path[32768];
+        std::vector<wchar_t> path(32768);
         DWORD length = 32768;
         FILETIME created{}, exit{}, kernel{}, user{};
-        if (QueryFullProcessImageNameW(handle, 0, path, &length) &&
+        if (QueryFullProcessImageNameW(handle, 0, path.data(), &length) &&
             GetProcessTimes(handle, &created, &exit, &kernel, &user)) {
-          item.image.assign(path, length);
+          item.image.assign(path.data(), length);
           std::transform(item.image.begin(), item.image.end(), item.image.begin(), towlower);
           item.created = (uint64_t(created.dwHighDateTime) << 32) | created.dwLowDateTime;
         }
@@ -45,6 +45,10 @@ inline std::vector<Process> snapshot() {
 inline const Process* find(DWORD pid, const std::vector<Process>& list) {
   auto it = std::find_if(list.begin(), list.end(), [&](auto& item) { return item.pid == pid; });
   return it == list.end() ? nullptr : &*it;
+}
+inline bool identityMatches(DWORD pid, uint64_t created, const std::vector<Process>& list) {
+  auto process = find(pid, list);
+  return created && process && process->created == created;
 }
 inline bool descendant(DWORD pid, DWORD root, const std::vector<Process>& list) {
   for (size_t i = 0; i < list.size(); ++i) {
@@ -133,7 +137,9 @@ class Activation final : public IActivateAudioInterfaceCompletionHandler {
   HANDLE done = CreateEventW(nullptr, FALSE, FALSE, nullptr);
   HRESULT result = E_FAIL;
   ComPtr<IAudioClient> client;
-  ~Activation() { CloseHandle(done); }
+  ~Activation() {
+    if (done) CloseHandle(done);
+  }
   HRESULT STDMETHODCALLTYPE QueryInterface(REFIID id, void** object) override {
     if (!object) return E_POINTER;
     *object = nullptr;
@@ -169,10 +175,16 @@ class Capture {
   std::mutex mutex;
   std::deque<int16_t> queue;
   std::atomic<bool> running{true};
-  HRESULT result = E_PENDING;
+  std::atomic<HRESULT> result{E_PENDING};
   HANDLE initialized = CreateEventW(nullptr, FALSE, FALSE, nullptr);
   void run() {
-    CoInitializeEx(nullptr, COINIT_MULTITHREADED);
+    const HRESULT apartment = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
+    if (FAILED(apartment)) {
+      result = apartment;
+      running = false;
+      SetEvent(initialized);
+      return;
+    }
     HANDLE process = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION | SYNCHRONIZE, FALSE, pid);
     Activation* activation = new Activation();
     ComPtr<IActivateAudioInterfaceAsyncOperation> operation;
@@ -185,16 +197,19 @@ class Capture {
     variant.vt = VT_BLOB;
     variant.blob.cbSize = sizeof(params);
     variant.blob.pBlobData = reinterpret_cast<BYTE*>(&params);
-    result = process ? ActivateAudioInterfaceAsync(VIRTUAL_AUDIO_DEVICE_PROCESS_LOOPBACK,
-                                                   __uuidof(IAudioClient), &variant, activation,
-                                                   &operation)
-                     : E_ACCESSDENIED;
+    result =
+        process && activation->done
+            ? ActivateAudioInterfaceAsync(VIRTUAL_AUDIO_DEVICE_PROCESS_LOOPBACK,
+                                          __uuidof(IAudioClient), &variant, activation, &operation)
+            : E_ACCESSDENIED;
     if (SUCCEEDED(result)) {
       auto wait = WaitForSingleObject(activation->done, 10000);
       result = wait == WAIT_OBJECT_0 ? activation->result : HRESULT_FROM_WIN32(ERROR_TIMEOUT);
     }
+    if (SUCCEEDED(result) && !activation->client) result = E_POINTER;
     ComPtr<IAudioCaptureClient> capture;
     HANDLE event = CreateEventW(nullptr, FALSE, FALSE, nullptr);
+    if (!event) result = HRESULT_FROM_WIN32(GetLastError());
     WAVEFORMATEX format{};
     format.wFormatTag = WAVE_FORMAT_PCM;
     format.nChannels = 2;
@@ -213,10 +228,14 @@ class Capture {
     if (SUCCEEDED(result)) result = activation->client->Start();
     SetEvent(initialized);
     while (running && SUCCEEDED(result)) {
+      if (!event) {
+        result = E_HANDLE;
+        break;
+      }
       WaitForSingleObject(event, 20);
       auto list = snapshot();
       auto identity = find(pid, list);
-      if (!identity || identity->created != created || !safe(pid, list) ||
+      if (!process || !identity || identity->created != created || !safe(pid, list) ||
           WaitForSingleObject(process, 0) != WAIT_TIMEOUT) {
         result = E_ACCESSDENIED;
         break;
@@ -227,6 +246,11 @@ class Capture {
         DWORD flags = 0;
         result = capture->GetBuffer(&data, &frames, &flags, nullptr, nullptr);
         if (FAILED(result)) break;
+        if (!data && !(flags & AUDCLNT_BUFFERFLAGS_SILENT)) {
+          capture->ReleaseBuffer(frames);
+          result = E_POINTER;
+          break;
+        }
         {
           std::lock_guard<std::mutex> lock(mutex);
           const auto samples = reinterpret_cast<int16_t*>(data);
@@ -245,13 +269,22 @@ class Capture {
     if (activation->client) activation->client->Stop();
     activation->Release();
     if (process) CloseHandle(process);
-    CloseHandle(event);
+    if (event) CloseHandle(event);
     CoUninitialize();
   }
 
  public:
   Capture(DWORD id, uint64_t identity) : pid(id), created(identity) {
-    worker = std::thread([this] { run(); });
+    if (!initialized) throw std::runtime_error("Audio initialization event unavailable");
+    worker = std::thread([this] {
+      try {
+        run();
+      } catch (...) {
+        result = E_FAIL;
+        running = false;
+        SetEvent(initialized);
+      }
+    });
   }
   ~Capture() {
     running = false;
@@ -276,6 +309,8 @@ class Mixer {
   std::map<DWORD, std::unique_ptr<Capture>> captures;
   std::set<std::string> permitted;
   DWORD windowPid = 0;
+  HWND windowHandle = nullptr;
+  uint64_t windowCreated = 0;
   uint64_t lastScan = 0;
   std::set<DWORD> failed;
 
@@ -284,14 +319,20 @@ class Mixer {
     captures.clear();
     permitted.clear();
     windowPid = 0;
+    windowHandle = nullptr;
+    windowCreated = 0;
     failed.clear();
   }
   void start(const Json& settings) {
     stop();
     if (!settings.value("audio", false)) return;
     if (settings.at("source").get<std::string>().rfind("window:", 0) == 0) {
-      auto hwnd = (HWND)(uintptr_t)std::stoull(settings.at("source").get<std::string>().substr(7));
-      GetWindowThreadProcessId(hwnd, &windowPid);
+      windowHandle =
+          (HWND)(uintptr_t)std::stoull(settings.at("source").get<std::string>().substr(7));
+      GetWindowThreadProcessId(windowHandle, &windowPid);
+      auto list = snapshot();
+      auto owner = find(windowPid, list);
+      windowCreated = owner ? owner->created : 0;
     } else
       for (auto& image : settings.value("allowedAudioApps", Json::array()))
         permitted.insert(image.get<std::string>());
@@ -301,9 +342,12 @@ class Mixer {
   void refresh() {
     auto list = snapshot();
     std::set<DWORD> wanted;
-    if (windowPid)
-      wanted.insert(windowPid);
-    else
+    if (windowHandle) {
+      DWORD currentPid = 0;
+      GetWindowThreadProcessId(windowHandle, &currentPid);
+      if (currentPid == windowPid && identityMatches(windowPid, windowCreated, list))
+        wanted.insert(windowPid);
+    } else
       for (auto& item : sessions())
         if (item["allowed"] == true && permitted.count(item["image"].get<std::string>()))
           wanted.insert(item["pid"].get<DWORD>());

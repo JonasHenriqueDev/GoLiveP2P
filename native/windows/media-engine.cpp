@@ -101,6 +101,7 @@ static Json structureJson(const GstStructure* structure) {
   for (int i = 0; i < gst_structure_n_fields(structure); ++i) {
     auto name = gst_structure_nth_field_name(structure, i);
     auto value = gst_structure_get_value(structure, name);
+    if (!value) continue;
     if (GST_VALUE_HOLDS_STRUCTURE(value))
       out[name] = structureJson(gst_value_get_structure(value));
     else if (G_VALUE_HOLDS_STRING(value))
@@ -127,6 +128,7 @@ static Json structureJson(const GstStructure* structure) {
   return out;
 }
 #include "process-audio.hpp"
+#include "window-source.hpp"
 struct Peer {
   std::string id;
   GstElement *pipeline = nullptr, *rtc = nullptr, *video = nullptr, *audio = nullptr;
@@ -148,6 +150,7 @@ struct Peer {
 };
 class Engine {
   GstElement *capture = nullptr, *encoder = nullptr;
+  std::unique_ptr<WindowSource> windowSource;
   std::map<std::string, std::unique_ptr<Peer>> peers;
   std::map<std::string, std::vector<std::pair<unsigned, std::string>>> earlyCandidates;
   std::mutex peerMutex;
@@ -313,8 +316,10 @@ class Engine {
     }
     auto reply = gst_promise_get_reply(promise);
     GstWebRTCSessionDescription* sdp = nullptr;
-    if (!reply || !gst_structure_get(reply, offer ? "offer" : "answer",
-                                     GST_TYPE_WEBRTC_SESSION_DESCRIPTION, &sdp, nullptr)) {
+    if (!reply ||
+        !gst_structure_get(reply, offer ? "offer" : "answer", GST_TYPE_WEBRTC_SESSION_DESCRIPTION,
+                           &sdp, nullptr) ||
+        !sdp || !sdp->sdp) {
       gst_promise_unref(promise);
       throw std::runtime_error("SDP missing");
     }
@@ -411,6 +416,7 @@ class Engine {
     }
   }
   void stop() {
+    windowSource.reset();
     earlyCandidates.clear();
     audioRunning = false;
     if (audioWorker.joinable()) audioWorker.join();
@@ -439,14 +445,19 @@ class Engine {
     encodedFrames = 0;
     audioEnabled = config.value("audio", false);
     const auto source = config.at("source").get<std::string>();
-    const auto method = config.at("method").get<std::string>();
+    auto method = config.at("method").get<std::string>();
+    const bool automatic = method == "auto";
     auto list = sources();
     if (std::none_of(list.begin(), list.end(), [&](auto& item) { return item["id"] == source; }))
       throw std::runtime_error("Source no longer exists");
     bool window = source.rfind("window:", 0) == 0;
-    if (method != "wgc" && method != "dxgi") throw std::runtime_error("Invalid capture method");
-    if (window && method != "wgc")
+    if (automatic) method = window ? "printwindow" : "dxgi";
+    if (method != "wgc" && method != "dxgi" && method != "printwindow")
+      throw std::runtime_error("Invalid capture method");
+    if (window && method == "dxgi")
       throw std::runtime_error("DXGI captures monitors only; it cannot capture covered windows");
+    if (!window && method == "printwindow")
+      throw std::runtime_error("PrintWindow captures windows only");
     int width = config.at("width"), height = config.at("height"), fps = config.at("fps"),
         bitrate = config.at("bitrate");
     if (width < 320 || width > 2560 || height < 180 || height > 1440 || (fps != 30 && fps != 60) ||
@@ -456,6 +467,12 @@ class Engine {
     std::string captureSpec = "d3d11screencapturesrc capture-api=" + method +
                               " show-cursor=true show-border=false " +
                               (window ? "window-handle=" : "monitor-handle=") + handle;
+    if (method == "printwindow")
+      captureSpec =
+          "appsrc name=windowframes is-live=true format=time do-timestamp=true block=false "
+          "max-buffers=2 leaky-type=downstream caps=video/x-raw,format=BGRx,width=" +
+          std::to_string(width) + ",height=" + std::to_string(height) +
+          ",pixel-aspect-ratio=1/1,framerate=" + std::to_string(fps) + "/1 ! d3d11upload";
     // NVIDIA path keeps scaling/format conversion on D3D11. Software is a real fallback.
     software =
         config.value("encoder", std::string("auto")) == "software" || !available("nvd3d11h264enc");
@@ -484,7 +501,18 @@ class Engine {
         "video/x-raw,framerate=15/1 ! videoscale add-borders=true ! "
         "video/x-raw,width=960,height=540,pixel-aspect-ratio=1/1 ! videoconvert ! jpegenc "
         "quality=75 ! appsink name=preview emit-signals=true sync=false max-buffers=1 drop=true";
-    capture = parse(chain);
+    try {
+      capture = parse(chain);
+    } catch (const std::exception& error) {
+      if (software) throw;
+      emit({{"event", "warning"},
+            {"peer", "local"},
+            {"message",
+             std::string("Hardware pipeline unavailable; retrying OpenH264: ") + error.what()}});
+      auto fallback = config;
+      fallback["encoder"] = "software";
+      return start(fallback);
+    }
     encoder = gst_bin_get_by_name(GST_BIN(capture), "encoder");
     auto output = gst_bin_get_by_name(GST_BIN(capture), "encoded");
     auto preview = gst_bin_get_by_name(GST_BIN(capture), "preview");
@@ -493,10 +521,34 @@ class Engine {
     gst_object_unref(output);
     gst_object_unref(preview);
     if (gst_element_set_state(capture, GST_STATE_PLAYING) == GST_STATE_CHANGE_FAILURE) {
+      bool retry = !software;
       stop();
+      if (retry) {
+        emit({{"event", "warning"},
+              {"peer", "local"},
+              {"message", "Hardware initialization failed; retrying OpenH264"}});
+        auto fallback = config;
+        fallback["encoder"] = "software";
+        return start(fallback);
+      }
       throw std::runtime_error("Native capture failed");
     }
-    for (int attempt = 0; attempt < 500 && encodedFrames == 0; ++attempt) Sleep(10);
+    if (method == "printwindow") {
+      auto raw = gst_bin_get_by_name(GST_BIN(capture), "windowframes");
+      windowSource = std::make_unique<WindowSource>();
+      try {
+        windowSource->start(raw, reinterpret_cast<HWND>(std::stoull(handle)), width, height, fps);
+      } catch (...) {
+        gst_object_unref(raw);
+        stop();
+        throw;
+      }
+      gst_object_unref(raw);
+    }
+    for (int attempt = 0; attempt < 500 && encodedFrames == 0; ++attempt) {
+      if (windowSource && windowSource->unhealthy()) break;
+      Sleep(10);
+    }
     if (encodedFrames == 0) {
       auto bus = gst_element_get_bus(capture);
       auto message = gst_bus_pop_filtered(bus, GST_MESSAGE_ERROR);
@@ -513,8 +565,20 @@ class Engine {
         gst_message_unref(message);
       }
       gst_object_unref(bus);
+      bool captureFailed = windowSource && windowSource->unhealthy();
       bool retry = !software;
       stop();
+      if (automatic && method == "printwindow" && captureFailed) {
+        emit({{"event", "warning"},
+              {"peer", "local"},
+              {"message",
+               "PrintWindow unavailable for this application; using WGC, which can show the "
+               "capture border"}});
+        auto fallback = config;
+        fallback["method"] = "wgc";
+        return start(fallback);
+      }
+      if (captureFailed) throw std::runtime_error("Native window capture failed or exceeded its deadline");
       if (retry) {
         emit({{"event", "warning"},
               {"peer", "local"},
@@ -528,30 +592,49 @@ class Engine {
     if (audioEnabled) {
       audioRunning = true;
       audioWorker = std::thread([this, config] {
-        CoInitializeEx(nullptr, COINIT_MULTITHREADED);
-        process_audio::Mixer mixer;
-        mixer.start(config);
-        size_t previous = SIZE_MAX;
-        while (audioRunning) {
-          auto samples = mixer.packet();
-          auto count = mixer.active();
-          if (count != previous) {
-            previous = count;
-            emit({{"event", "audio-state"}, {"active", count > 0}, {"sources", count}});
-          }
-          {
-            std::lock_guard<std::mutex> lock(peerMutex);
-            for (auto& [id, peer] : peers)
-              if (peer->audio) {
-                auto buffer = gst_buffer_new_allocate(nullptr, samples.size() * 2, nullptr);
-                gst_buffer_fill(buffer, 0, samples.data(), samples.size() * 2);
-                GST_BUFFER_DURATION(buffer) = 10 * GST_MSECOND;
-                gst_app_src_push_buffer(GST_APP_SRC(peer->audio), buffer);
-              }
-          }
-          Sleep(10);
+        const HRESULT apartment = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
+        if (FAILED(apartment)) {
+          emit({{"event", "audio-state"}, {"active", false}, {"sources", 0}});
+          emit({{"event", "warning"},
+                {"peer", "local"},
+                {"message", "Audio COM initialization failed; video continues"}});
+          return;
         }
-        mixer.stop();
+        try {
+          process_audio::Mixer mixer;
+          mixer.start(config);
+          size_t previous = SIZE_MAX;
+          while (audioRunning) {
+            auto samples = mixer.packet();
+            auto count = mixer.active();
+            if (count != previous) {
+              previous = count;
+              emit({{"event", "audio-state"}, {"active", count > 0}, {"sources", count}});
+            }
+            {
+              std::lock_guard<std::mutex> lock(peerMutex);
+              for (auto& [id, peer] : peers)
+                if (peer->audio) {
+                  auto buffer = gst_buffer_new_allocate(nullptr, samples.size() * 2, nullptr);
+                  gst_buffer_fill(buffer, 0, samples.data(), samples.size() * 2);
+                  GST_BUFFER_DURATION(buffer) = 10 * GST_MSECOND;
+                  gst_app_src_push_buffer(GST_APP_SRC(peer->audio), buffer);
+                }
+            }
+            Sleep(10);
+          }
+          mixer.stop();
+        } catch (const std::exception& error) {
+          emit({{"event", "warning"},
+                {"peer", "local"},
+                {"message", std::string("Audio blocked; video continues: ") + error.what()}});
+          emit({{"event", "audio-state"}, {"active", false}, {"sources", 0}});
+        } catch (...) {
+          emit({{"event", "warning"},
+                {"peer", "local"},
+                {"message", "Audio blocked after unexpected failure; video continues"}});
+          emit({{"event", "audio-state"}, {"active", false}, {"sources", 0}});
+        }
         CoUninitialize();
       });
     }
@@ -607,10 +690,13 @@ class Engine {
       auto it = peers.find(id);
       auto c = message.at("candidate");
       auto candidate = c.at("candidate").get<std::string>();
-      unsigned index = c.contains("sdpMLineIndex") && c["sdpMLineIndex"].is_number_unsigned() ? c["sdpMLineIndex"].get<unsigned>() : 0;
+      unsigned index = c.contains("sdpMLineIndex") && c["sdpMLineIndex"].is_number_unsigned()
+                           ? c["sdpMLineIndex"].get<unsigned>()
+                           : 0;
       if (candidate.size() > 4096 || index > 8) throw std::runtime_error("Invalid ICE candidate");
       if (it == peers.end()) {
-        if (!earlyCandidates.count(id) && earlyCandidates.size() >= 4) throw std::runtime_error("Early ICE peer limit");
+        if (!earlyCandidates.count(id) && earlyCandidates.size() >= 4)
+          throw std::runtime_error("Early ICE peer limit");
         auto& queued = earlyCandidates[id];
         if (queued.size() >= 128) throw std::runtime_error("Early ICE queue full");
         queued.emplace_back(index, candidate);
@@ -676,6 +762,11 @@ class Engine {
     g_free(bytes);
   }
   void poll() {
+    if (windowSource && windowSource->unhealthy()) {
+      emit({{"event", "error"}, {"peer", "local"},
+            {"message", "Window capture stopped: application closed, minimized or unresponsive"}});
+      stop();
+    }
     std::vector<std::pair<GstElement*, std::string>> pipelines;
     if (capture) pipelines.emplace_back(capture, "local");
     for (auto& [id, peer] : peers) pipelines.emplace_back(peer->pipeline, id);
@@ -754,9 +845,11 @@ class Engine {
       list[1].image = L"";
       expect(!process_audio::safe(2000001, list));
       list[1].image = L"c:\\decoder.exe";
+      expect(process_audio::identityMatches(2000001, 100, list));
       list[0].created = 300;
+      expect(!process_audio::identityMatches(2000001, 100, list));
       expect(!process_audio::descendant(2000002, 2000001, list));
-      return {{"passed", 5}};
+      return {{"passed", 7}};
     }
     if (method == "capabilities")
       return {{"runtime", gst_version_string()},
@@ -802,7 +895,11 @@ struct Input {
 };
 int main(int argc, char** argv) {
   SetErrorMode(SEM_FAILCRITICALERRORS | SEM_NOGPFAULTERRORBOX);
-  CoInitializeEx(nullptr, COINIT_MULTITHREADED);
+  const HRESULT apartment = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
+  if (FAILED(apartment)) {
+    std::cerr << "COM initialization failed\n";
+    return 1;
+  }
   gst_init(&argc, &argv);
   Input input;
   std::thread reader([&] {
@@ -851,5 +948,6 @@ int main(int argc, char** argv) {
   }
   engine.stop();
   reader.join();
+  CoUninitialize();
   return 0;
 }

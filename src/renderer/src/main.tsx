@@ -9,6 +9,7 @@ import { NativeAudioBridge } from './audio/native-audio';
 import type { Peer, ServerMessage } from '../../shared/protocol';
 import type { TailscaleStatus } from '../../services/tailscale/status';
 import type { UpdateState } from '../../main/updater';
+import type { CaptureSettings } from '../../shared/native-media';
 import './style.css';
 
 type Source = {
@@ -41,8 +42,8 @@ function App() {
   const [local, setLocal] = useState(false);
   const nativeWindows = window.golive.platform === 'win32';
   const [nativeFrame, setNativeFrame] = useState('');
-  const [method, setMethod] = useState<'wgc' | 'dxgi'>('wgc');
-  const [encoder, setEncoder] = useState<'auto' | 'software'>('auto');
+  const [method, setMethod] = useState<CaptureSettings['method']>('auto');
+  const [activeEncoder, setActiveEncoder] = useState('');
   const [audioApps, setAudioApps] = useState<
     {
       pid: number;
@@ -80,6 +81,14 @@ function App() {
   const video = useRef<HTMLVideoElement>(null);
   const localVideo = useRef<HTMLVideoElement>(null);
   const stage = useRef<HTMLElement>(null);
+  async function toggleFullscreen() {
+    try {
+      if (document.fullscreenElement) await document.exitFullscreen();
+      else await stage.current?.requestFullscreen();
+    } catch (cause) {
+      setError(`Não foi possível alterar a tela cheia: ${String(cause)}`);
+    }
+  }
   const client = useRef(new SignalingClient());
   const mesh = useRef<Mesh | NativeMesh>(
     nativeWindows
@@ -211,6 +220,7 @@ function App() {
       media.onFrame = (_peer, jpeg) =>
         setNativeFrame(jpeg ? 'data:image/jpeg;base64,' + jpeg : '');
       media.onAudio = setAudioActive;
+      media.onEncoder = setActiveEncoder;
       media.onError = (message) => {
         setError(message);
         if (message.includes('engine exited') && localRef.current) stop();
@@ -402,8 +412,13 @@ function App() {
         await mesh.current.startNative(
           {
             source: id,
-            method,
-            encoder,
+            method:
+              id.startsWith('window:') && method === 'dxgi'
+                ? 'wgc'
+                : id.startsWith('monitor:') && method === 'printwindow'
+                  ? 'dxgi'
+                  : method,
+            encoder: 'auto',
             width: config.width,
             height: config.height,
             fps: config.frameRate as 30 | 60,
@@ -593,7 +608,11 @@ function App() {
         value={bitrate}
         onChange={(event) => void changeBitrate(Number(event.target.value))}
       />
-      <small>O WebRTC pode reduzir a taxa conforme a rede.</small>
+      <small>
+        {nativeWindows
+          ? 'Ajuste a taxa para a conexão dos espectadores.'
+          : 'O WebRTC pode reduzir a taxa conforme a rede.'}
+      </small>
     </label>
   );
 
@@ -823,7 +842,19 @@ function App() {
             </aside>
           )}
           {local || streamer ? (
-            <section ref={stage} className="streamStage" tabIndex={0}>
+            <section
+              ref={stage}
+              className="streamStage"
+              tabIndex={0}
+              onDoubleClick={(event) => {
+                if (
+                  !(event.target as HTMLElement).closest(
+                    'button,input,select,label',
+                  )
+                )
+                  void toggleFullscreen();
+              }}
+            >
               {nativeWindows ? (
                 <img
                   src={nativeFrame || undefined}
@@ -870,6 +901,14 @@ function App() {
                     {qualitySelector}
                     {bitrateSelector}
                     <small>Áudio: {audioActive ? 'ativo' : 'desativado'}</small>
+                    {nativeWindows && activeEncoder && (
+                      <small>
+                        Codificação:{' '}
+                        {activeEncoder === 'openh264'
+                          ? 'CPU · OpenH264'
+                          : 'GPU · NVENC'}
+                      </small>
+                    )}
                   </div>
                 )}
                 <div className="streamControls">
@@ -881,7 +920,7 @@ function App() {
                   </button>
                   <button
                     className="secondary small"
-                    onClick={() => void stage.current?.requestFullscreen()}
+                    onClick={() => void toggleFullscreen()}
                   >
                     Tela cheia
                   </button>
@@ -905,38 +944,33 @@ function App() {
                 {qualitySelector}
                 {bitrateSelector}
                 {nativeWindows && (
-                  <>
+                  <details>
+                    <summary>Opções avançadas de captura</summary>
                     <label>
-                      Método de captura
+                      Como capturar a imagem
                       <select
                         value={method}
                         onChange={(event) =>
-                          setMethod(event.target.value as 'wgc' | 'dxgi')
+                          setMethod(
+                            event.target.value as CaptureSettings['method'],
+                          )
                         }
                       >
+                        <option value="auto">Automático (recomendado)</option>
+                        <option value="printwindow">Janelas — PrintWindow (compatibilidade)</option>
                         <option value="wgc">
-                          Windows Graphics Capture (monitor/janela coberta)
+                          Janelas e monitores — Windows Graphics Capture
                         </option>
-                        <option value="dxgi">
-                          DXGI Desktop Duplication (monitor)
-                        </option>
+                        <option value="dxgi">Somente monitores — DXGI</option>
                       </select>
                     </label>
-                    <label>
-                      Codificação
-                      <select
-                        value={encoder}
-                        onChange={(event) =>
-                          setEncoder(event.target.value as 'auto' | 'software')
-                        }
-                      >
-                        <option value="auto">
-                          Hardware disponível, com fallback OpenH264
-                        </option>
-                        <option value="software">OpenH264 (CPU)</option>
-                      </select>
-                    </label>
-                  </>
+                    <p className="audioHint">
+                      Automático tenta PrintWindow para janelas e DXGI para
+                      monitores. Se o aplicativo não fornecer sua imagem por
+                      PrintWindow, use Windows Graphics Capture. O suporte varia
+                      entre aplicativos.
+                    </p>
+                  </details>
                 )}
                 <label className="check">
                   <input
@@ -976,6 +1010,33 @@ function App() {
               compartilhados e origens incertas são bloqueados. O microfone não
               é uma fonte de captura.
             </p>
+            {nativeWindows && (
+              <details>
+                <summary>Opções avançadas de captura</summary>
+                <label>
+                  Como capturar a imagem
+                  <select
+                    value={method}
+                    onChange={(event) =>
+                      setMethod(event.target.value as CaptureSettings['method'])
+                    }
+                  >
+                    <option value="auto">Automático (recomendado)</option>
+                    <option value="printwindow">Janelas — PrintWindow (compatibilidade)</option>
+                    <option value="wgc">
+                      Janelas e monitores — Windows Graphics Capture
+                    </option>
+                    <option value="dxgi">Somente monitores — DXGI</option>
+                  </select>
+                  {method === 'dxgi' && (
+                    <p className="audioHint">
+                      DXGI será usado para monitores. Janelas usam Windows
+                      Graphics Capture automaticamente.
+                    </p>
+                  )}
+                </label>
+              </details>
+            )}
             {audio && (
               <fieldset>
                 <legend>Aplicativos permitidos no áudio de monitor</legend>
@@ -1000,6 +1061,7 @@ function App() {
               </fieldset>
             )}
             {window.golive.platform === 'win32' &&
+              method === 'wgc' &&
               Number(system?.release.split('.')[2]) < 20348 && (
                 <p>
                   Ao transmitir uma janela neste Windows, a borda colorida é
@@ -1012,10 +1074,20 @@ function App() {
                 <button
                   className="source"
                   key={source.id}
-                  disabled={method === 'dxgi' && source.kind === 'window'}
                   onClick={() => void start(source.id)}
                 >
-                  {source.thumbnail && <img src={source.thumbnail} />}
+                  {source.thumbnail ? (
+                    <img
+                      src={source.thumbnail}
+                      alt={`Prévia de ${source.name}`}
+                    />
+                  ) : (
+                    <div className="sourcePreviewEmpty">
+                      {source.kind === 'window'
+                        ? 'Prévia indisponível para esta janela'
+                        : 'Monitor inteiro'}
+                    </div>
+                  )}
                   <small>
                     {source.kind === 'screen'
                       ? 'Monitor inteiro'

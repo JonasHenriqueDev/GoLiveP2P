@@ -14,7 +14,12 @@ const app = spawn(
     ...(process.argv.includes('--packaged') ? [] : ['.']),
     '--remote-debugging-port=9223',
   ],
-  { cwd: process.cwd(), windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] },
+  {
+    cwd: process.cwd(),
+    windowsHide: true,
+    detached: process.argv.includes('--keep-open'),
+    stdio: ['ignore', 'pipe', 'pipe'],
+  },
 );
 app.stdout.on('data', (chunk) =>
   writeFileSync(resolve(work, 'main.log'), chunk, { flag: 'a' }),
@@ -76,6 +81,15 @@ try {
     return result.result.value;
   };
   await sleep(1000);
+  for (let attempt = 0; attempt < 20; ++attempt) {
+    const status = await evaluate('window.golive.tailscaleStatus()');
+    if (status.connected) break;
+    if (attempt === 19)
+      throw new Error(
+        'Tailscale status unavailable: ' + JSON.stringify(status),
+      );
+    await sleep(500);
+  }
   const report = {
     system: await evaluate('window.golive.systemInfo()'),
     capabilities: await evaluate(
@@ -90,20 +104,29 @@ try {
   await evaluate(
     "[...document.querySelectorAll('button')].find(button=>button.textContent==='Criar sala').click()",
   );
-  await sleep(1500);
+  for (let attempt = 0; attempt < 60; ++attempt) {
+    if (
+      await evaluate(
+        "document.body.innerText.includes('Pronto para compartilhar')",
+      )
+    )
+      break;
+    await sleep(250);
+  }
   report.room = await evaluate('document.body.innerText');
   if (!report.room.includes('Pronto para compartilhar'))
     throw new Error('Room creation failed: ' + report.room);
   await evaluate(
-    "[...document.querySelectorAll('select')].find(item=>item.value==='wgc').value='dxgi'",
-  );
-  await evaluate(
-    "(()=>{const select=[...document.querySelectorAll('select')].find(item=>item.value==='dxgi');select.dispatchEvent(new Event('change',{bubbles:true}));})()",
-  );
-  await evaluate(
     "[...document.querySelectorAll('button')].find(button=>button.textContent==='Compartilhar tela').click()",
   );
   await sleep(1000);
+  report.picker = await evaluate(
+    "({windows:[...document.querySelectorAll('button.source')].filter(button=>button.textContent.includes('Aplicativo / janela')).length, thumbnails:document.querySelectorAll('button.source img').length, disabled:document.querySelectorAll('button.source:disabled').length})",
+  );
+  if (report.picker.disabled)
+    throw new Error('Source picker has blocked sources');
+  if (report.picker.windows && !report.picker.thumbnails)
+    throw new Error('Window thumbnails missing');
   await evaluate(
     "[...document.querySelectorAll('button.source')].find(button=>button.textContent.includes('Monitor inteiro')).click()",
   );

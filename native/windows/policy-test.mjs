@@ -35,7 +35,7 @@ child.stdout.on('data', (chunk) => {
       );
     if (message.id === 1) {
       clearTimeout(timer);
-      if (!message.ok || message.result.passed !== 5) process.exitCode = 1;
+      if (!message.ok || message.result.passed !== 7) process.exitCode = 1;
       console.log(message);
       child.stdin.end();
     }

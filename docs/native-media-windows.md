@@ -16,12 +16,21 @@ Não confundir o build de desenvolvimento `0.5.0-native.1` com uma migração va
 
 Referências primárias: [OBS Core](https://docs.obsproject.com/reference-core), [plugins OBS](https://docs.obsproject.com/plugins), [libwebrtc nativo](https://webrtc.googlesource.com/src/+/main/docs/native-code/development/), [captura D3D11](https://gstreamer.freedesktop.org/documentation/d3d11/d3d11screencapturesrc.html), [webrtcbin](https://gstreamer.freedesktop.org/documentation/webrtc/), [SDK fixado](https://gstreamer.freedesktop.org/data/pkg/windows/1.26.7/msvc/).
 
+### Avaliação executável de libobs
+
+`pwsh -File native/windows/obs-evaluation.ps1 -Mode game` baixa arquivos oficiais OBS 32.2.2 com digests fixados, compila `obs-probe.cpp` e exercita libobs/D3D11/win-capture contra a janela Win32 de teste. Requer MSVC e `npm run native:build` previamente para gerar a fixture. `-Mode bitblt -Chrome` avalia a janela Chrome disponível. O programa gera frames de composição e amostras BMP para inspeção; número de frames ou pixels não pretos não comprova captura correta.
+
+Este programa é separado do build/instalador. Ele usa headers GPL do download oficial, configura um cabeçalho local mínimo para o probe e resolve APIs dinamicamente na DLL da mesma versão; não constitui um SDK vendorizado nem altera a licença do motor principal. O plugin OBS pode atualizar hooks em ProgramData e registros Vulkan, comportamento observado em seu código, portanto a avaliação deve ser executada conscientemente em ambiente de desenvolvimento.
+
+Resultados reais e limitações estão em [native-validation.md](native-validation.md): BitBlt capturou a fixture GDI, mas perdeu o conteúdo do Chrome; game capture não produziu conteúdo para a fixture. WGC do OBS verifica a mesma propriedade WinRT de controle de borda que não está disponível no build 19045 desta máquina. **libobs não foi incorporada como solução universal sem borda após esses testes.**
+
 GStreamer é dinamicamente ligado. O pacote inclui DLLs, plugins, scanner, inventário de hashes e licenças do SDK. A presença das licenças não substitui a revisão das obrigações de redistribuição. O SDK completo contém componentes opcionais GPL; a release está bloqueada até concluir essa revisão e eliminar dependências dispensáveis. A versão está fixada para reproduzir os testes; atualizar o SDK requer repetir os testes.
 
 ## Captura, codificação e apresentação
 
 - Enumeração nativa de HWND/HMONITOR. O identificador é validado contra fontes existentes imediatamente antes de iniciar.
-- WGC permite monitor e janela; DXGI é somente monitor. A combinação janela/DXGI é recusada nas duas fronteiras do IPC.
+- A seleção automática usa DXGI para monitor e PrintWindow (`PW_RENDERFULLCONTENT`) para janela. WGC permanece disponível nas opções avançadas e como fallback inicial quando PrintWindow falha. Janela/DXGI e monitor/PrintWindow são recusados no IPC.
+- PrintWindow roda em um executável C++ separado, com memória compartilhada privada, handles herdados restritos e Job Object. O motor encerra o auxiliar após três segundos sem frames; travar o aplicativo capturado não deve travar o processo de mídia. Redimensionamento é tratado pelo auxiliar. O método depende do suporte do aplicativo, não garante todas as janelas e não inclui cursor atualmente. Não é BitBlt da tela.
 - Não há fallback silencioso para GDI/BitBlt nem promessa de equivalência para janelas cobertas.
 - O Windows 10 pode manter a borda WGC. `show-border=false` é solicitado; não é prova de que o sistema a removeu. O controle documentado do plugin depende de Windows 11. Não há bypass implementado para Windows 10.
 - H.264 usa NVENC D3D11 quando disponível e OpenH264 em CPU quando explicitamente escolhido ou se o hardware falhar. Adaptadores AMD/Intel usam o fallback funcional por enquanto; Media Foundation/QSV não foram integrados como aceleradores sem testes.

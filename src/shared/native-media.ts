@@ -11,7 +11,7 @@ export const sourceSchema = z.object({
 export const captureSettings = z
   .strictObject({
     source: sourceSchema.shape.id,
-    method: z.enum(['wgc', 'dxgi']),
+    method: z.enum(['auto', 'printwindow', 'wgc', 'dxgi']),
     encoder: z.enum(['auto', 'software']),
     width: z.number().int().min(320).max(2560),
     height: z.number().int().min(180).max(1440),
@@ -21,7 +21,9 @@ export const captureSettings = z
     allowedAudioApps: z.array(z.string().min(1).max(32768)).max(32).optional(),
   })
   .refine(
-    (value) => !value.source.startsWith('window:') || value.method === 'wgc',
+    (value) =>
+      (!value.source.startsWith('window:') || value.method !== 'dxgi') &&
+      (!value.source.startsWith('monitor:') || value.method !== 'printwindow'),
     'DXGI só captura monitores',
   );
 const candidate = z.strictObject({
@@ -98,7 +100,7 @@ export const nativeStatsSchema = z.object({
 });
 export const startResultSchema = z.object({
   encoder: z.string(),
-  method: z.enum(['wgc', 'dxgi']),
+  method: z.enum(['printwindow', 'wgc', 'dxgi']),
   borderRemovalVerified: z.literal(false),
   audio: z.boolean(),
 });

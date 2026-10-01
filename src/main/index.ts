@@ -158,7 +158,29 @@ app.whenReady().then(() => {
     room = null;
   });
   ipcMain.handle('sources:list', async () => {
-    if (engine) return engine.request('sources', {});
+    if (engine) {
+      const native = await engine.request('sources', {});
+      // Picker images only. Streaming remains in the native media process.
+      try {
+        const previews = await desktopCapturer.getSources({
+          types: ['window'],
+          thumbnailSize: { width: 300, height: 180 },
+        });
+        const byHandle = new Map(
+          previews.map((source) => [
+            source.id.split(':').slice(0, 2).join(':'),
+            source.thumbnail.isEmpty() ? '' : source.thumbnail.toDataURL(),
+          ]),
+        );
+        return native.map((source) => ({
+          ...source,
+          thumbnail: byHandle.get(source.id) || source.thumbnail,
+        }));
+      } catch (error) {
+        console.warn('[Sources] picker thumbnails unavailable', error);
+        return native;
+      }
+    }
     const sources = await desktopCapturer.getSources({
       types: ['screen', 'window'],
       thumbnailSize: { width: 300, height: 180 },

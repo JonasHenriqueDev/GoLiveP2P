@@ -18,6 +18,8 @@ $commands = @(
   "call `"$vs/VC/Auxiliary/Build/vcvars64.bat`" >nul",
   "cl /nologo /std:c++17 /EHsc /W4 /O2 /MT $($includes -join ' ') /Fo`"$repo/work/native-build/media-engine.obj`" /Fe`"$stage/media-engine.exe`" `"$PSScriptRoot/media-engine.cpp`" /link /LIBPATH:`"$Sdk/lib`" $libraries",
   'if errorlevel 1 exit /b 1',
+  "cl /nologo /std:c++17 /EHsc /W4 /O2 /MT /Fo`"$repo/work/native-build/window-capture.obj`" /Fe`"$stage/window-capture.exe`" `"$PSScriptRoot/window-capture.cpp`" /link user32.lib gdi32.lib",
+  'if errorlevel 1 exit /b 1',
   "cl /nologo /std:c++17 /EHsc /W4 /O2 /MT /Fo`"$repo/work/native-build/audio-capture.obj`" /Fe`"$PSScriptRoot/bin/audio-capture.exe`" `"$PSScriptRoot/audio-capture.cpp`" /link ole32.lib mmdevapi.lib user32.lib",
   'if errorlevel 1 exit /b 1',
   "cl /nologo /std:c++17 /EHsc /W4 /O2 /MT /Fo`"$repo/work/native-build/media-fixture.obj`" /Fe`"$repo/work/native-build/media-fixture.exe`" `"$PSScriptRoot/media-fixture.cpp`" /link winmm.lib user32.lib gdi32.lib",

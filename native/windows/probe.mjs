@@ -138,35 +138,43 @@ function engine(name) {
     });
   return api;
 }
-const sender = engine('sender'),
-  receiver = engine('receiver');
-const senderId = randomUUID(),
-  receiverId = randomUUID();
+const sender = engine('sender');
+const receiverCount = process.argv.includes('--five-local') ? 4 : 1;
+const receivers = Array.from({ length: receiverCount }, (_, index) => ({
+  id: randomUUID(),
+  api: engine(index ? `receiver-${index + 1}` : 'receiver'),
+}));
+const receiver = receivers[0].api,
+  receiverId = receivers[0].id;
+const senderId = randomUUID();
 let signalChain = Promise.resolve();
 sender.signal = (value) => {
   signalChain = signalChain
     .then(() =>
-      receiver.request('signal', {
-        type: value.type,
-        peer: senderId,
-        ...(value.sdp ? { sdp: value.sdp } : { candidate: value.candidate }),
-      }),
+      receivers
+        .find((item) => item.id === value.peer)
+        .api.request('signal', {
+          type: value.type,
+          peer: senderId,
+          ...(value.sdp ? { sdp: value.sdp } : { candidate: value.candidate }),
+        }),
     )
     .catch((error) => report.errors.push({ signal: String(error) }));
 };
-receiver.signal = (value) => {
-  signalChain = signalChain
-    .then(() =>
-      sender.request('signal', {
-        type: value.type,
-        peer: receiverId,
-        ...(value.sdp ? { sdp: value.sdp } : { candidate: value.candidate }),
-      }),
-    )
-    .catch((error) => report.errors.push({ signal: String(error) }));
-};
+for (const item of receivers)
+  item.api.signal = (value) => {
+    signalChain = signalChain
+      .then(() =>
+        sender.request('signal', {
+          type: value.type,
+          peer: item.id,
+          ...(value.sdp ? { sdp: value.sdp } : { candidate: value.candidate }),
+        }),
+      )
+      .catch((error) => report.errors.push({ signal: String(error) }));
+  };
 try {
-  await Promise.all([sender.ready, receiver.ready]);
+  await Promise.all([sender.ready, ...receivers.map((item) => item.api.ready)]);
   report.runtime = await sender.request('capabilities');
   console.log(report.runtime);
   report.sources = await sender.request('sources');
@@ -192,9 +200,23 @@ try {
   console.log('capture', await sender.request('start', settings));
   const initial = await sender.request('stats');
   const start = performance.now();
-  await sender.request('offer', { peer: receiverId });
+  for (const item of receivers)
+    await sender.request('offer', { peer: item.id });
   await new Promise((resolve) => setTimeout(resolve, fixture ? 18000 : 12000));
   const stats = await sender.request('stats');
+  const receiverStats = await Promise.all(
+    receivers.map(async (item) => ({
+      id: item.id,
+      stats: await item.api.request('stats'),
+    })),
+  );
+  for (const item of receiverStats) {
+    const peer = item.stats.peers[senderId];
+    if (!peer || peer.receivedFrames <= 0 || peer.connection !== 2)
+      throw new Error(`Receiver ${item.id} did not connect and decode frames`);
+    if (fixture && settings.audio && (!peer.audioFrames || !peer.audioRms))
+      throw new Error(`Receiver ${item.id} did not receive the fixture audio`);
+  }
   report.tests.push({
     name: '1080p60 native capture and local native WebRTC receiver',
     settings,
@@ -202,6 +224,7 @@ try {
     encodedFrames: stats.encodedFrames - initial.encodedFrames,
     stats,
     receiverStats: await receiver.request('stats'),
+    allReceivers: receiverStats,
   });
   await sender.request('bitrate', { bitrate: 2000000 });
   await new Promise((resolve) => setTimeout(resolve, 2000));
@@ -212,24 +235,36 @@ try {
   await sender.request('remove', { peer: receiverId });
   await sender.request('offer', { peer: receiverId });
   await new Promise((resolve) => setTimeout(resolve, 4000));
+  const reconnected = await receiver.request('stats');
+  if (
+    reconnected.peers[senderId]?.connection !== 2 ||
+    !reconnected.peers[senderId]?.receivedFrames
+  )
+    throw new Error('Recreated peer did not reconnect and decode video');
   report.tests.push({
     name: 'peer recreation',
-    stats: await receiver.request('stats'),
+    stats: reconnected,
   });
   await sender.request('stop');
-  await receiver.request('stop');
+  for (const item of receivers) await item.api.request('stop');
   report.tests.push({ name: 'stop', stats: await sender.request('stats') });
+  if (
+    report.errors.some(
+      (error) => error.fatal || error.signal || error.event === 'error',
+    )
+  )
+    throw new Error('Native signaling or pipeline errors were observed');
 } catch (error) {
   report.errors.push({ fatal: String(error) });
   console.error(error);
   process.exitCode = 1;
 } finally {
   sender.close();
-  receiver.close();
+  for (const item of receivers) item.api.close();
   fixture?.kill();
   setTimeout(() => {
     sender.child.kill();
-    receiver.child.kill();
+    for (const item of receivers) item.api.child.kill();
   }, 2000).unref();
   writeFileSync(join(work, 'report.json'), JSON.stringify(report, null, 2));
   console.log('Frames', report.frames, 'Report', join(work, 'report.json'));

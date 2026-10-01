@@ -22,6 +22,7 @@ for (const relative of [
   'resources/app-update.yml',
   'resources/audio-capture.exe',
   'resources/native-media/media-engine.exe',
+  'resources/native-media/window-capture.exe',
   'resources/native-media/lib/gstreamer-1.0/gstwebrtc.dll',
   'resources/native-media/lib/gstreamer-1.0/gstnice.dll',
   'resources/native-media/licenses/sdk/gstreamer-1.0/README-LICENSE-INFO.txt',

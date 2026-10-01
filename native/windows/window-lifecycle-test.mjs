@@ -75,12 +75,16 @@ try {
   });
   assert.equal(capture.ok, true);
   const started = Date.now();
+  const frozen = process.argv.includes('--freeze-helper');
+  const action = frozen
+    ? `Add-Type -TypeDefinition 'using System; using System.Runtime.InteropServices; public static class CaptureTestThreads { [DllImport("kernel32.dll")] public static extern IntPtr OpenThread(uint access, bool inherit, uint id); [DllImport("kernel32.dll")] public static extern uint SuspendThread(IntPtr handle); [DllImport("kernel32.dll")] public static extern bool CloseHandle(IntPtr handle); }'; $ownedHelper | ForEach-Object { (Get-Process -Id $_.ProcessId).Threads | ForEach-Object { $threadHandle = [CaptureTestThreads]::OpenThread(2, $false, $_.Id); if ($threadHandle -eq [IntPtr]::Zero) { throw 'Cannot suspend test helper' }; try { if ([CaptureTestThreads]::SuspendThread($threadHandle) -eq [uint32]::MaxValue) { throw 'Suspend failed' } } finally { [void][CaptureTestThreads]::CloseHandle($threadHandle) } } }`
+    : '$ownedHelper | ForEach-Object { Stop-Process -Id $_.ProcessId -Force }';
   execFileSync(
     'powershell.exe',
     [
       '-NoProfile',
       '-Command',
-      `$ownedHelper = Get-CimInstance Win32_Process -Filter "ParentProcessId=${engine.pid} AND Name='window-capture.exe'"; if (!$ownedHelper) { throw 'Owned helper missing' }; $ownedHelper | ForEach-Object { Stop-Process -Id $_.ProcessId -Force }`,
+      `$ownedHelper = Get-CimInstance Win32_Process -Filter "ParentProcessId=${engine.pid} AND Name='window-capture.exe'"; if (!$ownedHelper) { throw 'Owned helper missing' }; ${action}`,
     ],
     { windowsHide: true },
   );
@@ -107,7 +111,9 @@ try {
   assert.equal(restarted.ok, true, 'Capture must restart after helper failure');
   assert.equal((await request('stop')).ok, true);
   const report = {
-    scenario: 'unexpected exit of owned window capture helper',
+    scenario: frozen
+      ? 'owned capture helper threads suspended'
+      : 'unexpected exit of owned window capture helper',
     elapsedMs,
     capture,
     failure,
@@ -115,7 +121,9 @@ try {
     captureRestarted: true,
   };
   writeFileSync(
-    'work/native-results/window-hang.json',
+    frozen
+      ? 'work/native-results/window-frozen-helper.json'
+      : 'work/native-results/window-hang.json',
     JSON.stringify(report, null, 2),
   );
   console.log(report);

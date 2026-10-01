@@ -1,0 +1,27 @@
+name: Publish release binaries
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Reassemble and verify Linux AppImage
+        run: |
+          cd release
+          bash assemble-linux.sh
+          sha256sum -c SHA256SUMS-0.2.0.txt
+      - name: Upload complete executables to v0.2.0
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release upload v0.2.0 \
+            release/GoLive-P2P-Portable-0.2.0.exe \
+            release/GoLive-P2P-0.2.0.AppImage \
+            release/SHA256SUMS-0.2.0.txt \
+            --clobber

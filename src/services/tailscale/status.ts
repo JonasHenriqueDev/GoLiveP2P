@@ -27,7 +27,7 @@ export function tailscaleCommands(platform = process.platform, env = process.env
   return commands;
 }
 
-export async function getTailscaleStatus(): Promise<TailscaleStatus> {
+export async function findTailscaleCommand(): Promise<string | null> {
   let command: string | null = null;
   for (const candidate of tailscaleCommands()) {
     if (candidate.includes('/') || candidate.includes('\\')) {
@@ -37,6 +37,11 @@ export async function getTailscaleStatus(): Promise<TailscaleStatus> {
       catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') { command = candidate; break; } }
     }
   }
+  return command;
+}
+
+export async function getTailscaleStatus(): Promise<TailscaleStatus> {
+  const command = await findTailscaleCommand();
   if (!command) return { installed: false, connected: false, ip: null, message: 'Tailscale não instalado' };
   try {
     const [status, ip] = await Promise.all([

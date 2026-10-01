@@ -1,68 +1,69 @@
 # GoLive P2P
 
-Aplicativo desktop Electron para compartilhar tela com até cinco participantes. Um computador hospeda a sinalização WebSocket no próprio IPv4 Tailscale; o vídeo e o áudio usam conexões WebRTC independentes entre transmissor e cada espectador. O host não retransmite mídia.
+Aplicativo desktop para compartilhar tela com até cinco pessoas na mesma tailnet Tailscale. O host coordena a sala por WebSocket no próprio IP Tailscale; vídeo e áudio trafegam por uma conexão WebRTC independente para cada espectador. Não há servidor central de mídia.
 
-## Requisitos
+## Plataformas e requisitos
 
-- Windows 10/11 (plataforma principal). Linux permanece disponível como plataforma secundária.
-- Node.js 22 ou superior e npm
-- Tailscale instalado, autenticado e conectado à mesma tailnet em todos os computadores
-- Permissão de captura de tela do sistema operacional
+- Windows 10/11: executável portátil, plataforma principal.
+- Linux: AppImage. A captura de tela depende do compositor e, em Wayland, do xdg-desktop-portal.
+- Tailscale instalado, autenticado e conectado à mesma tailnet em cada computador.
+- Para desenvolvimento: Node.js 22+ e npm.
 
-## Instalar e executar
+O aplicativo não instala nem configura o Tailscale. Não exige IP público, abertura de portas no roteador, VPS, STUN ou TURN. As ACLs da tailnet e o firewall local precisam permitir TCP 47621 até o host e UDP entre os peers.
+
+## Desenvolvimento e builds
 
 ```bash
 npm install
 npm run dev
-```
-
-Para checar o código:
-
-```bash
 npm run lint
 npm run typecheck
 npm test
-npm run build
+npm run build          # .exe portátil Windows
+npm run build:linux    # AppImage Linux
+npm run build:all      # ambos os pacotes
 ```
 
-`npm run build` gera o executável portátil `.exe` para Windows em `release/`. Para gerar um AppImage Linux, use `npm run build:linux`. O executável não exige instalação. Prefira validar o arquivo em Windows.
+Os artefatos ficam em `release/`. Compile preferencialmente cada pacote em sua plataforma e valide a captura em computadores reais. O `.exe` portátil não precisa de instalação; o AppImage pode precisar de `chmod +x`.
 
-## Uso em dois computadores
+## Como usar
 
-1. Em A e B, abra o PowerShell e execute `tailscale status` e `tailscale ip -4`. Ambos devem estar conectados. Se o comando não estiver no PATH, use `& "$env:ProgramFiles\Tailscale\tailscale.exe" status`.
-2. Em A, digite um nome e clique **Criar sala**. Copie o IPv4 Tailscale exibido.
-3. Em B, digite um nome e o IP de A e clique **Entrar na sala**.
-4. Em A, escolha 1080p60 ou 720p30 e clique **Compartilhar tela**. Escolha o monitor ou janela.
-5. B recebe o vídeo. A pode parar a transmissão. Até três outros espectadores podem entrar.
-6. No terminal, `tailscale ping <peer>` verifica a conectividade. O resultado indica `direct` quando há conexão direta entre os dispositivos e `via DERP` quando o Tailscale precisou usar relay. O aplicativo continua P2P no nível WebRTC; o relay Tailscale pode encaminhar pacotes quando o caminho direto não está disponível.
+1. Em todos os computadores, confirme a conexão com `tailscale status` e `tailscale ip -4`. No PowerShell, se `tailscale` não estiver no PATH, execute `& "$env:ProgramFiles\Tailscale\tailscale.exe" status`.
+2. Uma pessoa informa o nome e clica **Criar sala**. O IP Tailscale do host aparece na sala.
+3. As demais podem clicar **Procurar salas na tailnet**. A descoberta consulta os dispositivos online que o Tailscale já conhece e procura hosts GoLive na porta 47621. Se a sala não aparecer, informe manualmente o IP do host.
+4. Todos aparecem na lista. Uma pessoa escolhe a qualidade, seleciona monitor ou janela e inicia a transmissão.
+5. O transmissor pode alterar a qualidade durante o compartilhamento e acompanhar bitrate, codec, FPS, resolução, RTT, perda e estado de cada espectador.
+6. Ao parar ou sair, os streams e as conexões são limpos. Se a sinalização cair brevemente, o cliente tenta reconectar usando o mesmo ID de sessão, reservado por 30 segundos. O WebRTC tenta nova oferta ICE quando a conexão falha.
+
+Só uma pessoa transmite por vez na sala. Isso evita saturar a banda de upload em grupos pequenos; qualquer participante pode transmitir depois que a transmissão atual parar.
+
+## Qualidade e áudio
+
+Presets: 720p30, 720p60, 1080p30, 1080p60 e 1440p30. São metas de captura e limites iniciais de bitrate por peer; hardware, sistema e rede podem reduzir os valores. Com quatro espectadores, o transmissor envia até quatro fluxos.
+
+No Windows, marcar **Compartilhar áudio** solicita loopback do sistema pelo Electron. No Linux, a interface permite escolher uma entrada de áudio exposta pelo PulseAudio/PipeWire, inclusive uma fonte *monitor* quando o sistema a disponibiliza. Clique **Listar entradas de áudio** para conceder a permissão e selecionar a fonte. O vídeo continua funcionando se o áudio não estiver disponível.
 
 ## Arquitetura
 
-- `src/main`: ciclo de vida Electron, detecção de fontes e host WebSocket na interface Tailscale.
-- `src/preload`: API limitada via contextBridge; renderer sem Node.js.
-- `src/shared`: protocolo tipado e validação Zod.
-- `src/services/tailscale`: CLI oficial `tailscale status --json` e `tailscale ip -4`.
-- `src/services/signaling`: sala única de até cinco usuários; IDs de sessão aleatórios; roteamento autenticado pelo socket.
-- `src/services/webrtc`: uma RTCPeerConnection por espectador; ICE sem servidores STUN/TURN; H.264 preferido quando disponível; bitrate máximo por preset.
-- `src/services/stats`: amostragem de getStats a cada 2,5 segundos.
-- `src/renderer`: interface React com seleção de fontes, sala, vídeo e diagnóstico.
+- `src/main`: Electron, seleção de fonte e servidor ligado somente ao IP Tailscale.
+- `src/preload`: API limitada via contextBridge, com `contextIsolation: true` e `nodeIntegration: false`.
+- `src/shared`: protocolo validado com Zod.
+- `src/services/tailscale`: consulta à CLI oficial e descoberta opcional de hosts conhecidos.
+- `src/services/signaling`: sala única, limite de cinco sessões, IDs e tokens aleatórios, retomada temporária e roteamento das mensagens pelo socket autenticado.
+- `src/services/webrtc`: uma RTCPeerConnection por espectador, ICE sem STUN/TURN e H.264 preferido quando disponível.
+- `src/services/stats`: getStats por peer a cada 2,5 segundos.
+- `src/renderer`: interface React, diagnóstico e vídeo direto em `HTMLVideoElement`.
 
-O Chromium expõe candidatos ICE locais sem ofuscação mDNS para permitir que o IPv4 Tailscale seja negociado entre máquinas. Isso também torna IPs locais visíveis aos participantes da sala. O servidor de sinalização escuta só no IP Tailscale. A sessão WebRTC usa criptografia DTLS/SRTP, além do túnel WireGuard do Tailscale.
+O Chromium expõe candidatos ICE locais sem ofuscação mDNS para permitir a negociação do IPv4 Tailscale. Participantes da sala podem ver esses IPs locais no SDP. A mídia usa DTLS/SRTP e a tailnet usa WireGuard/Tailscale.
 
-## Diagnóstico e problemas comuns
+## Diagnóstico
 
-- **Tailscale desconectado:** execute `tailscale status` e conecte o serviço; criação e entrada ficam desabilitadas.
-- **Não conecta ao host:** teste `tailscale ping <IP-do-host>`; confira se as ACLs da tailnet permitem TCP 47621 e UDP entre peers.
-- **Sinalização conecta mas vídeo não chega:** confira as ACLs para tráfego UDP entre os IPs Tailscale; veja o estado WebRTC/ICE na seção Diagnóstico.
-- **Firewall do Windows:** permita o GoLive P2P nas redes apropriadas quando o Windows solicitar. O host precisa aceitar TCP 47621 em seu endereço Tailscale e os peers precisam permitir o tráfego UDP do WebRTC. Confira também as ACLs da tailnet.
-- **Captura indisponível no Linux:** em Wayland, verifique xdg-desktop-portal e permissão de captura de tela. A seleção de janela pode variar conforme o compositor.
-- **Áudio não chega:** a captura de áudio do sistema depende da plataforma. A primeira versão habilita loopback do Electron no Windows; Linux avisa quando não há track de áudio.
-- **Qualidade abaixo do preset:** resolução, FPS e bitrate são metas; captura, hardware e rede podem reduzi-los. Cada espectador exige upload separado, até quatro vezes o bitrate individual.
+- `tailscale ping <IP-do-peer>` verifica conectividade. O resultado indica `direct` quando o Tailscale conecta os dispositivos diretamente e `via DERP` quando precisa de relay. Nesse caso o vídeo continua sem passar pelo host de sinalização, mas os pacotes da tailnet podem atravessar o DERP.
+- Se a sala não aparecer na descoberta, use o IP manualmente. A descoberta depende de os peers estarem visíveis no `tailscale status --json` e de a porta TCP 47621 estar acessível.
+- Se a sinalização conectar mas o vídeo não chegar, verifique as ACLs para UDP entre peers e os estados WebRTC/ICE no painel Diagnóstico.
+- No Windows, permita o GoLive P2P no Firewall quando solicitado. No Linux, verifique permissões de captura, xdg-desktop-portal e a presença de fontes monitor de áudio.
+- Se a rede cair por mais de 30 segundos, a sessão pode expirar; entre novamente.
 
-## Limitações conhecidas
+## Limitações verificáveis
 
-A reconexão automática de WebRTC usa ICE restart quando a conexão falha. Se a sinalização cair, o usuário precisa entrar novamente na sala. A sala tem um único transmissor simultâneo. A interface não descobre hosts automaticamente; o IP Tailscale é informado manualmente. A validação real entre máquinas e do executável portátil Windows depende de computadores Windows com Tailscale e desktop disponíveis.
-
-## Melhorias futuras
-
-Descoberta opcional do host na tailnet, reconexão da sala com identidade de sessão, presets adicionais, telemetria detalhada por espectador e validação de captura de áudio em mais distribuições Linux.
+O fluxo completo entre máquinas, áudio do sistema no Windows, seleção de fontes em diferentes ambientes Linux e executáveis empacotados precisam de validação prática nesses sistemas. O ambiente de build automatizado verifica código, protocolo e empacotamento, mas não dispõe de dois desktops conectados à mesma tailnet. A descoberta é opcional e não substitui a entrada manual.

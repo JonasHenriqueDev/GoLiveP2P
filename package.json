@@ -1,6 +1,6 @@
 {
   "name": "golive-p2p",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "type": "module",
   "main": "out/main/index.js",
@@ -12,7 +12,8 @@
     "lint": "eslint .",
     "test": "vitest run",
     "format": "prettier --write .",
-    "build:win": "electron-vite build && electron-builder --win portable"
+    "build:win": "electron-vite build && electron-builder --win portable",
+    "build:all": "electron-vite build && electron-builder --win portable --linux AppImage"
   },
   "dependencies": {
     "react": "^19.1.1",

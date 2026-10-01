@@ -2,6 +2,7 @@ import { app, BrowserWindow, desktopCapturer, ipcMain, session } from 'electron'
 import { join } from 'node:path';
 import { RoomServer } from '../services/signaling/room';
 import { getTailscaleStatus } from '../services/tailscale/status';
+import { discoverHosts } from '../services/tailscale/discovery';
 import { PORT } from '../shared/protocol';
 app.commandLine.appendSwitch('disable-features','WebRtcHideLocalIpsWithMdns');
 let room:RoomServer|null=null;
@@ -18,9 +19,10 @@ app.whenReady().then(()=>{
   callback({ video: source, audio: process.platform === 'win32' && request.audioRequested ? 'loopback' : undefined });
  });
  ipcMain.handle('tailscale:status',getTailscaleStatus);
+ ipcMain.handle('tailscale:discover',discoverHosts);
  ipcMain.handle('room:create',async()=>{
   const status=await getTailscaleStatus();if(!status.connected||!status.ip)throw new Error(status.message);
-  room?.close();room=new RoomServer(status.ip,PORT);console.info('[Signaling] listening',status.ip,PORT);return {ip:status.ip,port:PORT};
+  room?.close();const next=new RoomServer(status.ip,PORT);await next.ready;room=next;console.info('[Signaling] listening',status.ip,PORT);return {ip:status.ip,port:PORT};
  });
  ipcMain.handle('room:close',()=>{room?.close();room=null;});
  ipcMain.handle('sources:list',async()=>{const sources=await desktopCapturer.getSources({types:['screen','window'],thumbnailSize:{width:300,height:180}});return sources.map(s=>({id:s.id,name:s.name,thumbnail:s.thumbnail.toDataURL()}));});

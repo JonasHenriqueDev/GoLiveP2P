@@ -11,7 +11,7 @@ jobs:
         shell: cmd
         run: |
           mkdir native\windows\bin
-          cl /nologo /std:c++17 /EHsc /O2 /DUNICODE /D_UNICODE native\windows\audio-capture.cpp /Fe:native\windows\bin\audio-capture.exe /link ole32.lib mmdevapi.lib
+          cl /nologo /std:c++17 /EHsc /O2 /DUNICODE /D_UNICODE native\windows\audio-capture.cpp /Fe:native\windows\bin\audio-capture.exe /link ole32.lib mmdevapi.lib user32.lib
       - uses: actions/upload-artifact@v4
         with:
           name: audio-capture-win64

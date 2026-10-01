@@ -85,3 +85,9 @@ Relatórios e imagens de teste ficam em work/native-results (não versionados). 
 
 
 Instalador reconstruído após PrintWindow: extraídos NSIS e payload app-64.7z, conferidos 764 arquivos nativos pelo manifesto, incluindo window-capture.exe, app.asar e configuração do updater. SHA-256: e890cfb968ead82c85fe3debea172c6b83cf035de4dea5469a99659468609e0c. Build Windows concluído. Não foi publicado como migração concluída; instalação efetiva e atualização entre duas versões continuam pendentes.
+
+### Pré-release Windows 0.5.0-native.2
+
+Publicação de teste autorizada explicitamente pelo usuário, sem afirmar conclusão da migração. Instalador NSIS extraído e payload conferido: 764 arquivos nativos, executáveis e updater. SHA-256 0ff7cdf31f83dbe8628333bdc8d20efbc385b542cbd7f09c7ad13dc19f24329d. Aplicativo empacotado abriu sala e prévia nativa. Lint, typecheck e 33 testes passaram.
+
+Teste adicional window-lifecycle-test.mjs encerrou somente o auxiliar filho do motor de teste: falha detectada em 791 ms, IPC continuou responsivo, captura foi reiniciada e parada com sucesso. Uma tentativa de provocar bloqueio via WM_PRINT não bloqueou PrintWindow neste sistema; não foi registrada como teste de hang aprovado. O teste de bloqueio real permanece pendente. Os demais gates continuam false. Esta pré-release não contém manifesto para atualização automática de instalações estáveis.

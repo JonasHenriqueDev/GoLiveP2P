@@ -1,12 +1,12 @@
 {
-  "version": "0.5.0-native.1",
+  "version": "0.5.0-native.2",
   "releaseApproved": false,
   "windows10": false,
   "windows11": false,
   "crossDevice": true,
   "audioExclusions": false,
   "latencyAndLoad": false,
-  "installerInspected": false,
+  "installerInspected": true,
   "licensesAudited": false,
   "congestionControl": false
 }

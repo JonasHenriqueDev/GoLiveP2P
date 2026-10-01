@@ -50,6 +50,12 @@ static bool belongsToTree(DWORD pid, DWORD root, const std::vector<ProcessInfo>&
   }
   return false;
 }
+static bool containsDiscord(DWORD root, const std::vector<ProcessInfo>& list) {
+  for (const auto& process : list) {
+    if (isDiscord(process.name) && belongsToTree(process.pid, root, list)) return true;
+  }
+  return false;
+}
 class Activation final : public IActivateAudioInterfaceCompletionHandler {
  public:
   HANDLE done = CreateEventW(nullptr, FALSE, FALSE, nullptr);
@@ -88,6 +94,7 @@ int wmain(int argc, wchar_t** argv) {
   if (FAILED(CoInitializeEx(nullptr, COINIT_MULTITHREADED))) return fail(L"COM_INIT");
   const auto list = processes();
   DWORD target = 0;
+  DWORD appPid = 0;
   if (wcscmp(argv[1], L"window") == 0) {
     wchar_t* end = nullptr;
     const unsigned long long id = wcstoull(argv[2], &end, 0);
@@ -96,8 +103,9 @@ int wmain(int argc, wchar_t** argv) {
     if (!IsWindow(window)) return fail(L"INVALID_WINDOW");
     GetWindowThreadProcessId(window, &target);
     const auto helper = std::find_if(list.begin(), list.end(), [&](const ProcessInfo& item) { return item.pid == GetCurrentProcessId(); });
-    const DWORD appPid = helper == list.end() ? 0 : helper->parent;
-    if (!target || !appPid || belongsToDiscord(target, list) || belongsToTree(target, appPid, list)) return fail(L"WINDOW_AUDIO_BLOCKED");
+    appPid = helper == list.end() ? 0 : helper->parent;
+    if (!target || !appPid || belongsToDiscord(target, list) || containsDiscord(target, list) ||
+        belongsToTree(target, appPid, list) || belongsToTree(appPid, target, list)) return fail(L"WINDOW_AUDIO_BLOCKED");
   } else return fail(L"USAGE");
 
   AUDIOCLIENT_ACTIVATION_PARAMS params{};
@@ -138,8 +146,11 @@ int wmain(int argc, wchar_t** argv) {
   for (;;) {
     const DWORD wait = WaitForSingleObject(event, 1000);
     if (wait != WAIT_OBJECT_0) { if (wait == WAIT_FAILED) { exitCode = fail(L"AUDIO_WAIT"); break; } continue; }
-    // Fail closed if the target becomes part of a Discord process tree.
-    if (belongsToDiscord(target, processes())) { exitCode = fail(L"DISCORD_WINDOW_BLOCKED"); break; }
+    // Fail closed if Discord or GoLive joins the captured process tree.
+    const auto current = processes();
+    const bool targetPresent = std::any_of(current.begin(), current.end(), [&](const ProcessInfo& item) { return item.pid == target; });
+    if (!targetPresent || belongsToDiscord(target, current) || containsDiscord(target, current) ||
+        belongsToTree(appPid, target, current)) { exitCode = fail(L"WINDOW_AUDIO_BLOCKED"); break; }
     UINT32 frames = 0;
     while (SUCCEEDED(capture->GetNextPacketSize(&frames)) && frames) {
       BYTE* data = nullptr; DWORD flags = 0; UINT64 position = 0, qpc = 0;

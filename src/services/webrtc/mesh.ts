@@ -2,11 +2,16 @@ import type { ClientMessage, ServerMessage } from '../../shared/protocol';
 import { preset, type Quality } from './presets';
 export type { Quality } from './presets';
 export { preset } from './presets';
+export function normalizeBitrate(mbps: number): number {
+  if (!Number.isFinite(mbps)) throw new Error('Bitrate inválido');
+  return Math.round(Math.min(20, Math.max(0.5, mbps)) * 1_000_000);
+}
 
 export class Mesh {
   private pcs = new Map<string, RTCPeerConnection>();
   private pending = new Map<string, RTCIceCandidateInit[]>();
   private restartAttempts = new Map<string, number>();
+  private targetBitrate = 6_000_000;
   stream: MediaStream | null = null;
   onRemote: (stream: MediaStream | null) => void = () => {};
   onState: (peer: string, state: string) => void = () => {};
@@ -35,8 +40,9 @@ export class Mesh {
     };
     return pc;
   }
-  async start(stream: MediaStream, peerIds: string[], quality: Quality) {
+  async start(stream: MediaStream, peerIds: string[], quality: Quality, bitrateMbps: number) {
     this.stream = stream;
+    this.targetBitrate = normalizeBitrate(bitrateMbps);
     await Promise.all(peerIds.map(id => this.offer(id, quality)));
   }
   async offer(id: string, quality: Quality) {
@@ -68,7 +74,7 @@ export class Mesh {
   private async configureSender(sender: RTCRtpSender, quality: Quality) {
     const params = sender.getParameters();
     params.encodings = params.encodings?.length ? params.encodings : [{}];
-    params.encodings[0].maxBitrate = preset(quality).bitrate;
+    params.encodings[0].maxBitrate = this.targetBitrate;
     params.encodings[0].maxFramerate = preset(quality).frameRate;
     await sender.setParameters(params).catch(() => {});
   }
@@ -78,6 +84,12 @@ export class Mesh {
     const config = preset(quality);
     await track.applyConstraints({ width: { ideal: config.width }, height: { ideal: config.height }, frameRate: { ideal: config.frameRate } });
     await Promise.all([...this.pcs.values()].flatMap(pc => pc.getSenders().filter(sender => sender.track?.kind === 'video').map(sender => this.configureSender(sender, quality))));
+  }
+  async changeBitrate(mbps: number, quality: Quality) {
+    this.targetBitrate = normalizeBitrate(mbps);
+    await Promise.all([...this.pcs.values()].flatMap(pc => pc.getSenders()
+      .filter(sender => sender.track?.kind === 'video')
+      .map(sender => this.configureSender(sender, quality))));
   }
   async handle(message: ServerMessage) {
     if (message.type === 'request-restart' && this.stream) await this.restart(message.from);

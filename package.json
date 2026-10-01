@@ -1,6 +1,6 @@
 {
   "name": "golive-p2p",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "private": true,
   "type": "module",
   "main": "out/main/index.js",
@@ -59,7 +59,13 @@
       "target": [
         "portable"
       ],
-      "artifactName": "GoLive-P2P-Portable-${version}.${ext}"
+      "artifactName": "GoLive-P2P-Portable-${version}.${ext}",
+      "extraResources": [
+        {
+          "from": "native/windows/bin/audio-capture.exe",
+          "to": "audio-capture.exe"
+        }
+      ]
     }
   }
 }

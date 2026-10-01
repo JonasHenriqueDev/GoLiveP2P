@@ -81,4 +81,12 @@ describe('room', () => {
     expect(response.status).toBe(200);
     expect(await response.json()).toMatchObject({ app: 'golive-p2p', participants: 0, full: false });
   });
+  it('delivers a bounded log report with the authenticated sender ID', async () => {
+    room = new RoomServer('127.0.0.1', port); await room.ready;
+    const sender = await connect('Sender');
+    const recipient = await connect('Recipient');
+    const received = next(recipient.socket, 'log-report');
+    sender.socket.send(JSON.stringify({ type: 'log-report', to: recipient.first.self.id, text: 'diagnostic' }));
+    expect(await received).toMatchObject({ from: sender.first.self.id, text: 'diagnostic' });
+  });
 });

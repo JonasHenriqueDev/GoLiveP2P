@@ -13,7 +13,9 @@ const candidate = z.object({
   sdpMLineIndex: z.number().int().nullable().optional(),
   usernameFragment: z.string().nullable().optional()
 });
-const peerSchema = z.object({ id: idSchema, name: nameSchema });
+export const tailscaleIpSchema = z.string().regex(/^100\.(?:\d{1,3}\.){2}\d{1,3}$/);
+const peerSchema = z.object({ id: idSchema, name: nameSchema, ip: tailscaleIpSchema.nullable() });
+export const LOG_LIMIT = 120_000;
 
 export const clientMessage = z.discriminatedUnion('type', [
   z.object({ type: z.literal('join-room'), name: nameSchema, resumeToken: tokenSchema.optional() }),
@@ -22,6 +24,7 @@ export const clientMessage = z.discriminatedUnion('type', [
   z.object({ type: z.literal('answer'), to: idSchema, sdp }),
   z.object({ type: z.literal('ice-candidate'), to: idSchema, candidate }),
   z.object({ type: z.literal('request-restart'), to: idSchema }),
+  z.object({ type: z.literal('log-report'), to: idSchema, text: z.string().min(1).max(LOG_LIMIT) }),
   z.object({ type: z.literal('start-stream') }),
   z.object({ type: z.literal('stop-stream') })
 ]);
@@ -33,6 +36,7 @@ export type ServerMessage =
   | { type: 'offer' | 'answer'; from: string; sdp: string }
   | { type: 'ice-candidate'; from: string; candidate: z.infer<typeof candidate> }
   | { type: 'request-restart'; from: string }
+  | { type: 'log-report'; from: string; text: string }
   | { type: 'start-stream' | 'stop-stream'; from: string }
   | { type: 'room-full' }
   | { type: 'error'; message: string };
@@ -45,6 +49,7 @@ export const serverMessage = z.discriminatedUnion('type', [
   z.object({ type: z.literal('answer'), from: idSchema, sdp }),
   z.object({ type: z.literal('ice-candidate'), from: idSchema, candidate }),
   z.object({ type: z.literal('request-restart'), from: idSchema }),
+  z.object({ type: z.literal('log-report'), from: idSchema, text: z.string().min(1).max(LOG_LIMIT) }),
   z.object({ type: z.literal('start-stream'), from: idSchema }),
   z.object({ type: z.literal('stop-stream'), from: idSchema }),
   z.object({ type: z.literal('room-full') }),

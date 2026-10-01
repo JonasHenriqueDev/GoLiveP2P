@@ -31,21 +31,21 @@ static bool isDiscord(const std::wstring& name) {
   return name == L"discord.exe" || name == L"discordptb.exe" ||
          name == L"discordcanary.exe" || name == L"discorddevelopment.exe";
 }
-static DWORD discordRoot(const std::vector<ProcessInfo>& list) {
-  std::vector<DWORD> roots;
-  for (const auto& process : list) {
-    if (!isDiscord(process.name)) continue;
-    const auto parent = std::find_if(list.begin(), list.end(), [&](const ProcessInfo& other) { return other.pid == process.parent; });
-    if (parent == list.end() || !isDiscord(parent->name)) roots.push_back(process.pid);
-  }
-  return roots.size() == 1 ? roots[0] : 0;
-}
 static bool belongsToDiscord(DWORD pid, const std::vector<ProcessInfo>& list) {
   for (size_t i = 0; i <= list.size(); ++i) {
     const auto process = std::find_if(list.begin(), list.end(), [&](const ProcessInfo& item) { return item.pid == pid; });
     if (process == list.end()) return false;
     if (isDiscord(process->name)) return true;
     if (!process->parent || process->parent == pid) return false;
+    pid = process->parent;
+  }
+  return false;
+}
+static bool belongsToTree(DWORD pid, DWORD root, const std::vector<ProcessInfo>& list) {
+  for (size_t i = 0; i <= list.size(); ++i) {
+    if (pid == root) return true;
+    const auto process = std::find_if(list.begin(), list.end(), [&](const ProcessInfo& item) { return item.pid == pid; });
+    if (process == list.end() || !process->parent || process->parent == pid) return false;
     pid = process->parent;
   }
   return false;
@@ -87,7 +87,6 @@ int wmain(int argc, wchar_t** argv) {
   if (argc != 3) return fail(L"USAGE");
   if (FAILED(CoInitializeEx(nullptr, COINIT_MULTITHREADED))) return fail(L"COM_INIT");
   const auto list = processes();
-  bool include = false;
   DWORD target = 0;
   if (wcscmp(argv[1], L"window") == 0) {
     wchar_t* end = nullptr;
@@ -96,19 +95,15 @@ int wmain(int argc, wchar_t** argv) {
     const HWND window = reinterpret_cast<HWND>(static_cast<UINT_PTR>(id));
     if (!IsWindow(window)) return fail(L"INVALID_WINDOW");
     GetWindowThreadProcessId(window, &target);
-    if (!target || belongsToDiscord(target, list)) return fail(L"DISCORD_WINDOW_BLOCKED");
-    include = true;
-  } else if (wcscmp(argv[1], L"exclude-discord") == 0) {
-    target = discordRoot(list);
-    if (!target) return fail(L"DISCORD_NOT_UNIQUE");
+    const auto helper = std::find_if(list.begin(), list.end(), [&](const ProcessInfo& item) { return item.pid == GetCurrentProcessId(); });
+    const DWORD appPid = helper == list.end() ? 0 : helper->parent;
+    if (!target || !appPid || belongsToDiscord(target, list) || belongsToTree(target, appPid, list)) return fail(L"WINDOW_AUDIO_BLOCKED");
   } else return fail(L"USAGE");
 
   AUDIOCLIENT_ACTIVATION_PARAMS params{};
   params.ActivationType = AUDIOCLIENT_ACTIVATION_TYPE_PROCESS_LOOPBACK;
   params.ProcessLoopbackParams.TargetProcessId = target;
-  params.ProcessLoopbackParams.ProcessLoopbackMode = include
-    ? PROCESS_LOOPBACK_MODE_INCLUDE_TARGET_PROCESS_TREE
-    : PROCESS_LOOPBACK_MODE_EXCLUDE_TARGET_PROCESS_TREE;
+  params.ProcessLoopbackParams.ProcessLoopbackMode = PROCESS_LOOPBACK_MODE_INCLUDE_TARGET_PROCESS_TREE;
   PROPVARIANT activation{};
   activation.vt = VT_BLOB;
   activation.blob.cbSize = sizeof(params);
@@ -143,9 +138,8 @@ int wmain(int argc, wchar_t** argv) {
   for (;;) {
     const DWORD wait = WaitForSingleObject(event, 1000);
     if (wait != WAIT_OBJECT_0) { if (wait == WAIT_FAILED) { exitCode = fail(L"AUDIO_WAIT"); break; } continue; }
-    // Fail closed if Discord exits, restarts or becomes ambiguous during capture.
-    if (!include && discordRoot(processes()) != target) { exitCode = fail(L"DISCORD_CHANGED"); break; }
-    if (include && belongsToDiscord(target, processes())) { exitCode = fail(L"DISCORD_WINDOW_BLOCKED"); break; }
+    // Fail closed if the target becomes part of a Discord process tree.
+    if (belongsToDiscord(target, processes())) { exitCode = fail(L"DISCORD_WINDOW_BLOCKED"); break; }
     UINT32 frames = 0;
     while (SUCCEEDED(capture->GetNextPacketSize(&frames)) && frames) {
       BYTE* data = nullptr; DWORD flags = 0; UINT64 position = 0, qpc = 0;

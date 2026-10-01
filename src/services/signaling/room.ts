@@ -21,7 +21,7 @@ export class RoomServer {
       } else { response.writeHead(404); response.end(); }
     });
     this.server = new WebSocketServer({ server: this.http, maxPayload: 220_000 });
-    this.server.on('connection', socket => this.connect(socket));
+    this.server.on('connection', (socket, request) => this.connect(socket, request.socket.remoteAddress ?? ''));
     this.ready = new Promise((resolve, reject) => {
       this.http.once('error', reject);
       this.http.listen(port, ip, () => { this.http.off('error', reject); resolve(); });
@@ -59,7 +59,7 @@ export class RoomServer {
     this.broadcast({ type: 'user-left', peer: member.peer });
     console.info('[Room] user left', member.peer.id);
   }
-  private connect(socket: WebSocket) {
+  private connect(socket: WebSocket, remoteAddress: string) {
     const joinTimeout = setTimeout(() => socket.close(1008, 'Join timeout'), 10_000);
     socket.on('message', raw => {
       let parsed: unknown;
@@ -78,7 +78,11 @@ export class RoomServer {
           this.send(socket, { type: 'room-full' }); socket.close(1008); return;
         }
         const member = resumed ?? {
-          peer: { id: randomUUID(), name: msg.name }, token: randomBytes(32).toString('hex'),
+          peer: {
+            id: randomUUID(), name: msg.name,
+            ip: /^100\.(?:\d{1,3}\.){2}\d{1,3}$/.test(remoteAddress.replace(/^::ffff:/, ''))
+              ? remoteAddress.replace(/^::ffff:/, '') : null
+          }, token: randomBytes(32).toString('hex'),
           socket: null, timer: null
         };
         if (member.timer) clearTimeout(member.timer);
@@ -111,6 +115,11 @@ export class RoomServer {
       }
       const recipient = this.members.get(msg.to);
       if (!recipient?.socket) { this.send(socket, { type: 'error', message: 'Destinatário indisponível' }); return; }
+      if (msg.type === 'log-report') {
+        this.send(recipient.socket, { type: 'log-report', from: self.peer.id, text: msg.text });
+        console.info('[Room] log report sent', self.peer.id, recipient.peer.id);
+        return;
+      }
       if (msg.type === 'offer' && self.peer.id !== this.streamerId) {
         this.send(socket, { type: 'error', message: 'Somente o transmissor pode criar ofertas' }); return;
       }

@@ -1,39 +1,46 @@
 // Process-loopback PCM capture for Windows build 20348+. stdout: 48 kHz stereo s16le.
 #define WIN32_LEAN_AND_MEAN
-#include <windows.h>
 #include <audioclient.h>
 #include <audioclientactivationparams.h>
 #include <mmdeviceapi.h>
-#include <tlhelp32.h>
 #include <propidl.h>
-#include <atomic>
+#include <tlhelp32.h>
+#include <windows.h>
+
 #include <algorithm>
+#include <atomic>
+#include <cstdio>
 #include <cwctype>
 #include <string>
 #include <vector>
-#include <cstdio>
 
-struct ProcessInfo { DWORD pid; DWORD parent; std::wstring name; };
+struct ProcessInfo {
+  DWORD pid;
+  DWORD parent;
+  std::wstring name;
+};
 static std::vector<ProcessInfo> processes() {
   std::vector<ProcessInfo> found;
   HANDLE snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
   if (snapshot == INVALID_HANDLE_VALUE) return found;
-  PROCESSENTRY32W entry{}; entry.dwSize = sizeof(entry);
+  PROCESSENTRY32W entry{};
+  entry.dwSize = sizeof(entry);
   if (Process32FirstW(snapshot, &entry)) do {
-    std::wstring name(entry.szExeFile);
-    std::transform(name.begin(), name.end(), name.begin(), towlower);
-    found.push_back({entry.th32ProcessID, entry.th32ParentProcessID, name});
-  } while (Process32NextW(snapshot, &entry));
+      std::wstring name(entry.szExeFile);
+      std::transform(name.begin(), name.end(), name.begin(), towlower);
+      found.push_back({entry.th32ProcessID, entry.th32ParentProcessID, name});
+    } while (Process32NextW(snapshot, &entry));
   CloseHandle(snapshot);
   return found;
 }
 static bool isDiscord(const std::wstring& name) {
-  return name == L"discord.exe" || name == L"discordptb.exe" ||
-         name == L"discordcanary.exe" || name == L"discorddevelopment.exe";
+  return name == L"discord.exe" || name == L"discordptb.exe" || name == L"discordcanary.exe" ||
+         name == L"discorddevelopment.exe";
 }
 static bool belongsToDiscord(DWORD pid, const std::vector<ProcessInfo>& list) {
   for (size_t i = 0; i <= list.size(); ++i) {
-    const auto process = std::find_if(list.begin(), list.end(), [&](const ProcessInfo& item) { return item.pid == pid; });
+    const auto process = std::find_if(list.begin(), list.end(),
+                                      [&](const ProcessInfo& item) { return item.pid == pid; });
     if (process == list.end()) return false;
     if (isDiscord(process->name)) return true;
     if (!process->parent || process->parent == pid) return false;
@@ -44,7 +51,8 @@ static bool belongsToDiscord(DWORD pid, const std::vector<ProcessInfo>& list) {
 static bool belongsToTree(DWORD pid, DWORD root, const std::vector<ProcessInfo>& list) {
   for (size_t i = 0; i <= list.size(); ++i) {
     if (pid == root) return true;
-    const auto process = std::find_if(list.begin(), list.end(), [&](const ProcessInfo& item) { return item.pid == pid; });
+    const auto process = std::find_if(list.begin(), list.end(),
+                                      [&](const ProcessInfo& item) { return item.pid == pid; });
     if (process == list.end() || !process->parent || process->parent == pid) return false;
     pid = process->parent;
   }
@@ -56,31 +64,68 @@ static bool containsDiscord(DWORD root, const std::vector<ProcessInfo>& list) {
   }
   return false;
 }
+// Shared browser/communication processes cannot prove which application produced a sample.
+static bool ambiguous(const std::wstring& name) {
+  return name == L"chrome.exe" || name == L"msedge.exe" || name == L"firefox.exe" ||
+         name == L"brave.exe" || name == L"opera.exe" || name == L"msedgewebview2.exe" ||
+         name == L"whatsapp.exe" || name == L"teams.exe" || name == L"ms-teams.exe";
+}
+static bool safeTree(DWORD target, const std::vector<ProcessInfo>& list) {
+  if (list.empty()) return false;
+  for (const auto& item : list)
+    if (belongsToTree(item.pid, target, list)) {
+      if (isDiscord(item.name) || ambiguous(item.name) || item.name == L"golive p2p.exe" ||
+          item.name == L"electron.exe")
+        return false;
+      HANDLE process = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, item.pid);
+      if (!process) return false;
+      wchar_t image[32768];
+      DWORD length = 32768;
+      bool identified = QueryFullProcessImageNameW(process, 0, image, &length) != FALSE;
+      CloseHandle(process);
+      if (!identified) return false;
+    }
+  return true;
+}
 class Activation final : public IActivateAudioInterfaceCompletionHandler {
  public:
   HANDLE done = CreateEventW(nullptr, FALSE, FALSE, nullptr);
   HRESULT result = E_FAIL;
   IAudioClient* client = nullptr;
-  ~Activation() { if (client) client->Release(); if (done) CloseHandle(done); }
+  ~Activation() {
+    if (client) client->Release();
+    if (done) CloseHandle(done);
+  }
   HRESULT STDMETHODCALLTYPE QueryInterface(REFIID id, void** object) override {
     if (!object) return E_POINTER;
-    if (id == __uuidof(IUnknown) || id == __uuidof(IActivateAudioInterfaceCompletionHandler)) {
-      *object = static_cast<IActivateAudioInterfaceCompletionHandler*>(this); AddRef(); return S_OK;
+    if (id == __uuidof(IUnknown) || id == __uuidof(IActivateAudioInterfaceCompletionHandler) ||
+        id == __uuidof(IAgileObject)) {
+      *object = static_cast<IActivateAudioInterfaceCompletionHandler*>(this);
+      AddRef();
+      return S_OK;
     }
-    *object = nullptr; return E_NOINTERFACE;
+    *object = nullptr;
+    return E_NOINTERFACE;
   }
   ULONG STDMETHODCALLTYPE AddRef() override { return ++references; }
-  ULONG STDMETHODCALLTYPE Release() override { const ULONG left = --references; if (!left) delete this; return left; }
-  HRESULT STDMETHODCALLTYPE ActivateCompleted(IActivateAudioInterfaceAsyncOperation* operation) override {
+  ULONG STDMETHODCALLTYPE Release() override {
+    const ULONG left = --references;
+    if (!left) delete this;
+    return left;
+  }
+  HRESULT STDMETHODCALLTYPE
+  ActivateCompleted(IActivateAudioInterfaceAsyncOperation* operation) override {
     IUnknown* unknown = nullptr;
     HRESULT activation = E_FAIL;
     result = operation->GetActivateResult(&activation, &unknown);
     if (SUCCEEDED(result)) result = activation;
-    if (SUCCEEDED(result) && unknown) result = unknown->QueryInterface(__uuidof(IAudioClient), reinterpret_cast<void**>(&client));
+    if (SUCCEEDED(result) && unknown)
+      result = unknown->QueryInterface(__uuidof(IAudioClient), reinterpret_cast<void**>(&client));
     if (unknown) unknown->Release();
     SetEvent(done);
     return S_OK;
   }
+
  private:
   std::atomic<ULONG> references{1};
 };
@@ -102,73 +147,145 @@ int wmain(int argc, wchar_t** argv) {
     const HWND window = reinterpret_cast<HWND>(static_cast<UINT_PTR>(id));
     if (!IsWindow(window)) return fail(L"INVALID_WINDOW");
     GetWindowThreadProcessId(window, &target);
-    const auto helper = std::find_if(list.begin(), list.end(), [&](const ProcessInfo& item) { return item.pid == GetCurrentProcessId(); });
+    const auto helper = std::find_if(list.begin(), list.end(), [&](const ProcessInfo& item) {
+      return item.pid == GetCurrentProcessId();
+    });
     appPid = helper == list.end() ? 0 : helper->parent;
     if (!target || !appPid) return fail(L"TARGET_NOT_FOUND");
     if (belongsToDiscord(target, list)) return fail(L"DISCORD_WINDOW_BLOCKED");
     if (containsDiscord(target, list)) return fail(L"DISCORD_DESCENDANT_BLOCKED");
-    if (belongsToTree(target, appPid, list) || belongsToTree(appPid, target, list)) return fail(L"GOLIVE_WINDOW_BLOCKED");
-  } else return fail(L"USAGE");
+    if (belongsToTree(target, appPid, list) || belongsToTree(appPid, target, list))
+      return fail(L"GOLIVE_WINDOW_BLOCKED");
+    if (!safeTree(target, list)) return fail(L"AUDIO_ORIGIN_UNCERTAIN");
+  } else
+    return fail(L"USAGE");
+  HANDLE targetHandle = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION | SYNCHRONIZE, FALSE, target);
+  if (!targetHandle) return fail(L"AUDIO_ORIGIN_UNCERTAIN");
 
   AUDIOCLIENT_ACTIVATION_PARAMS params{};
   params.ActivationType = AUDIOCLIENT_ACTIVATION_TYPE_PROCESS_LOOPBACK;
   params.ProcessLoopbackParams.TargetProcessId = target;
-  params.ProcessLoopbackParams.ProcessLoopbackMode = PROCESS_LOOPBACK_MODE_INCLUDE_TARGET_PROCESS_TREE;
+  params.ProcessLoopbackParams.ProcessLoopbackMode =
+      PROCESS_LOOPBACK_MODE_INCLUDE_TARGET_PROCESS_TREE;
   PROPVARIANT activation{};
   activation.vt = VT_BLOB;
   activation.blob.cbSize = sizeof(params);
   activation.blob.pBlobData = reinterpret_cast<BYTE*>(&params);
   Activation* handler = new Activation();
   IActivateAudioInterfaceAsyncOperation* operation = nullptr;
-  HRESULT hr = ActivateAudioInterfaceAsync(VIRTUAL_AUDIO_DEVICE_PROCESS_LOOPBACK, __uuidof(IAudioClient), &activation, handler, &operation);
-  if (FAILED(hr)) { handler->Release(); return fail(L"AUDIO_ACTIVATION", hr); }
+  HRESULT hr =
+      ActivateAudioInterfaceAsync(VIRTUAL_AUDIO_DEVICE_PROCESS_LOOPBACK, __uuidof(IAudioClient),
+                                  &activation, handler, &operation);
+  if (FAILED(hr)) {
+    handler->Release();
+    return fail(L"AUDIO_ACTIVATION", hr);
+  }
   if (WaitForSingleObject(handler->done, 10000) != WAIT_OBJECT_0) {
-    if (operation) operation->Release(); handler->Release(); return fail(L"AUDIO_TIMEOUT");
+    if (operation) operation->Release();
+    handler->Release();
+    return fail(L"AUDIO_TIMEOUT");
   }
   if (operation) operation->Release();
   hr = handler->result;
-  if (FAILED(hr) || !handler->client) { handler->Release(); return fail(L"AUDIO_ACTIVATION", hr); }
+  if (FAILED(hr) || !handler->client) {
+    handler->Release();
+    return fail(L"AUDIO_ACTIVATION", hr);
+  }
   WAVEFORMATEX format{};
-  format.wFormatTag = WAVE_FORMAT_PCM; format.nChannels = 2; format.nSamplesPerSec = 48000;
-  format.wBitsPerSample = 16; format.nBlockAlign = 4; format.nAvgBytesPerSec = 192000;
-  hr = handler->client->Initialize(AUDCLNT_SHAREMODE_SHARED,
-    AUDCLNT_STREAMFLAGS_LOOPBACK | AUDCLNT_STREAMFLAGS_EVENTCALLBACK | AUDCLNT_STREAMFLAGS_AUTOCONVERTPCM,
-    0, 0, &format, nullptr);
-  if (FAILED(hr)) { handler->Release(); return fail(L"AUDIO_FORMAT", hr); }
+  format.wFormatTag = WAVE_FORMAT_PCM;
+  format.nChannels = 2;
+  format.nSamplesPerSec = 48000;
+  format.wBitsPerSample = 16;
+  format.nBlockAlign = 4;
+  format.nAvgBytesPerSec = 192000;
+  hr =
+      handler->client->Initialize(AUDCLNT_SHAREMODE_SHARED,
+                                  AUDCLNT_STREAMFLAGS_LOOPBACK | AUDCLNT_STREAMFLAGS_EVENTCALLBACK |
+                                      AUDCLNT_STREAMFLAGS_AUTOCONVERTPCM,
+                                  0, 0, &format, nullptr);
+  if (FAILED(hr)) {
+    handler->Release();
+    return fail(L"AUDIO_FORMAT", hr);
+  }
   IAudioCaptureClient* capture = nullptr;
-  hr = handler->client->GetService(__uuidof(IAudioCaptureClient), reinterpret_cast<void**>(&capture));
-  if (FAILED(hr)) { handler->Release(); return fail(L"AUDIO_CAPTURE", hr); }
+  hr = handler->client->GetService(__uuidof(IAudioCaptureClient),
+                                   reinterpret_cast<void**>(&capture));
+  if (FAILED(hr)) {
+    handler->Release();
+    return fail(L"AUDIO_CAPTURE", hr);
+  }
   HANDLE event = CreateEventW(nullptr, FALSE, FALSE, nullptr);
   hr = handler->client->SetEventHandle(event);
   if (SUCCEEDED(hr)) hr = handler->client->Start();
-  if (FAILED(hr)) { capture->Release(); CloseHandle(event); handler->Release(); return fail(L"AUDIO_START", hr); }
-  fwprintf(stderr, L"READY\n"); fflush(stderr);
+  if (FAILED(hr)) {
+    capture->Release();
+    CloseHandle(event);
+    handler->Release();
+    return fail(L"AUDIO_START", hr);
+  }
+  fwprintf(stderr, L"READY\n");
+  fflush(stderr);
   const HANDLE output = GetStdHandle(STD_OUTPUT_HANDLE);
   int exitCode = 0;
   for (;;) {
     const DWORD wait = WaitForSingleObject(event, 1000);
-    if (wait != WAIT_OBJECT_0) { if (wait == WAIT_FAILED) { exitCode = fail(L"AUDIO_WAIT"); break; } continue; }
+    if (wait != WAIT_OBJECT_0) {
+      if (wait == WAIT_FAILED) {
+        exitCode = fail(L"AUDIO_WAIT");
+        break;
+      }
+      continue;
+    }
     // Fail closed if Discord or GoLive joins the captured process tree.
     const auto current = processes();
-    const bool targetPresent = std::any_of(current.begin(), current.end(), [&](const ProcessInfo& item) { return item.pid == target; });
-    if (!targetPresent) { exitCode = fail(L"TARGET_EXITED"); break; }
-    if (belongsToDiscord(target, current) || containsDiscord(target, current)) { exitCode = fail(L"DISCORD_CHANGED"); break; }
-    if (belongsToTree(appPid, target, current)) { exitCode = fail(L"GOLIVE_CHANGED"); break; }
+    const bool targetPresent =
+        std::any_of(current.begin(), current.end(),
+                    [&](const ProcessInfo& item) { return item.pid == target; });
+    if (!targetPresent || WaitForSingleObject(targetHandle, 0) != WAIT_TIMEOUT) {
+      exitCode = fail(L"TARGET_EXITED");
+      break;
+    }
+    if (belongsToDiscord(target, current) || containsDiscord(target, current)) {
+      exitCode = fail(L"DISCORD_CHANGED");
+      break;
+    }
+    if (belongsToTree(appPid, target, current)) {
+      exitCode = fail(L"GOLIVE_CHANGED");
+      break;
+    }
+    if (!safeTree(target, current)) {
+      exitCode = fail(L"AUDIO_ORIGIN_UNCERTAIN");
+      break;
+    }
     UINT32 frames = 0;
     while (SUCCEEDED(capture->GetNextPacketSize(&frames)) && frames) {
-      BYTE* data = nullptr; DWORD flags = 0; UINT64 position = 0, qpc = 0;
+      BYTE* data = nullptr;
+      DWORD flags = 0;
+      UINT64 position = 0, qpc = 0;
       hr = capture->GetBuffer(&data, &frames, &flags, &position, &qpc);
-      if (FAILED(hr)) { exitCode = fail(L"AUDIO_BUFFER", hr); break; }
+      if (FAILED(hr)) {
+        exitCode = fail(L"AUDIO_BUFFER", hr);
+        break;
+      }
       const DWORD bytes = frames * format.nBlockAlign;
       DWORD written = 0;
       std::vector<BYTE> silence;
-      if (flags & AUDCLNT_BUFFERFLAGS_SILENT) { silence.resize(bytes); data = silence.data(); }
-      if (!WriteFile(output, data, bytes, &written, nullptr) || written != bytes) exitCode = fail(L"AUDIO_PIPE");
+      if (flags & AUDCLNT_BUFFERFLAGS_SILENT) {
+        silence.resize(bytes);
+        data = silence.data();
+      }
+      if (!WriteFile(output, data, bytes, &written, nullptr) || written != bytes)
+        exitCode = fail(L"AUDIO_PIPE");
       capture->ReleaseBuffer(frames);
       if (exitCode) break;
     }
     if (exitCode) break;
   }
-  handler->client->Stop(); capture->Release(); CloseHandle(event); handler->Release(); CoUninitialize();
+  handler->client->Stop();
+  capture->Release();
+  CloseHandle(event);
+  CloseHandle(targetHandle);
+  handler->Release();
+  CoUninitialize();
   return exitCode;
 }

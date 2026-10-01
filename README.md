@@ -4,6 +4,16 @@ Aplicativo desktop para compartilhar tela com até cinco pessoas na mesma tailne
 
 ## Plataformas e requisitos
 
+### Migração nativa em desenvolvimento (`0.5.0-native.1`)
+
+O motor Windows agora tem implementação C++ com GStreamer: captura WGC/DXGI, H.264 com NVENC/fallback OpenH264, áudio por árvore de processos, mistura de aplicativos explicitamente permitidos, conexões WebRTC independentes e decodificação nativa. Electron + React + TypeScript continuam como interface. Consulte [arquitetura e limites](docs/native-media-windows.md) e [validação real](docs/native-validation.md). A versão de desenvolvimento **não é uma release validada**.
+
+A borda WGC no Windows 10 não foi removida nem é anunciada como removida. A prévia é apresentada a 15 FPS e o receptor Windows a 30 FPS, mesmo quando o fluxo de mídia é 60 FPS. O controle de congestionamento por receptor e a revisão completa do isolamento de áudio ainda impedem a publicação. Os parágrafos sobre a release 0.4.0 abaixo descrevem o comportamento anterior.
+
+Uma possível migração futura da interface para **Qt + C++** fica registrada como opção. Ela não foi implementada nesta etapa.
+
+Para preparar o desenvolvimento Windows, use MSVC C++/Windows SDK e PowerShell 7, execute `npm ci` e `npm run native:setup`. O instalador incluirá as dependências nativas e manterá a atualização automática; o usuário final continuará precisando instalar e autenticar o Tailscale separadamente. Linux está priorizado como cliente, com transmissão desabilitada na interface desta etapa.
+
 - Windows 10/11: instalador por usuário, plataforma principal. Vídeo de monitor e janela disponível. Áudio de janela tenta a API por processo no Windows 10 2004 (build 19041) ou posterior; o funcionamento depende das atualizações do Windows e ainda requer validação em dispositivos reais.
 - Linux: AppImage. A captura de tela depende do compositor e, em Wayland, do xdg-desktop-portal. O áudio fica desativado até existir filtragem segura do Discord nessa plataforma.
 - Tailscale instalado, autenticado e conectado à mesma tailnet em cada computador.

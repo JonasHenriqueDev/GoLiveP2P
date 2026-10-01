@@ -4,3 +4,7 @@ out/
 release/
 *.log
 .env*
+work/
+native/windows/runtime/
+native/windows/sdk/
+native/windows/sdk-root.txt

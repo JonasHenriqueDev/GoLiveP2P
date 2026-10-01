@@ -1,19 +1,23 @@
 {
   "name": "golive-p2p",
-  "version": "0.4.0",
+  "version": "0.5.0-native.1",
   "private": true,
   "type": "module",
   "main": "out/main/index.js",
   "scripts": {
-    "dev": "electron-vite dev",
-    "build": "electron-vite build && electron-builder --win nsis --publish never",
+    "postinstall": "install-electron",
+    "dev": "npm run native:build && electron-vite dev",
+    "build": "npm run build:win",
+    "native:setup": "pwsh -NoProfile -File native/windows/setup-sdk.ps1",
+    "native:build": "pwsh -NoProfile -File native/windows/build-media.ps1",
+    "native:probe": "node native/windows/probe.mjs",
     "build:linux": "electron-vite build && electron-builder --linux AppImage --publish never",
     "typecheck": "tsc --noEmit",
     "lint": "eslint .",
     "test": "vitest run",
     "format": "prettier --write .",
-    "build:win": "electron-vite build && electron-builder --win nsis --publish never",
-    "build:all": "electron-vite build && electron-builder --win nsis --linux AppImage --publish never"
+    "build:win": "npm run native:build && electron-vite build && electron-builder --win nsis --publish never",
+    "build:all": "npm run build:win && npm run build:linux"
   },
   "dependencies": {
     "electron-updater": "^6.8.9",
@@ -29,7 +33,7 @@
     "@types/react-dom": "^19.1.9",
     "@types/ws": "^8.18.1",
     "@vitejs/plugin-react": "^4.7.0",
-    "electron": "^38.2.0",
+    "electron": "^44.5.1",
     "electron-builder": "^26.0.12",
     "electron-vite": "^5.0.0",
     "eslint": "^9.36.0",
@@ -38,7 +42,7 @@
     "typescript": "^5.9.2",
     "typescript-eslint": "^8.44.1",
     "vite": "^7.1.7",
-    "vitest": "^3.2.4"
+    "vitest": "^5.0.3"
   },
   "build": {
     "appId": "dev.golive.p2p",
@@ -50,7 +54,13 @@
     "directories": {
       "output": "release"
     },
-    "publish": [{ "provider": "github", "owner": "JonasHenriqueDev", "repo": "GoLiveP2P" }],
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "JonasHenriqueDev",
+        "repo": "GoLiveP2P"
+      }
+    ],
     "linux": {
       "target": [
         "AppImage"
@@ -66,6 +76,10 @@
         {
           "from": "native/windows/bin/audio-capture.exe",
           "to": "audio-capture.exe"
+        },
+        {
+          "from": "native/windows/runtime",
+          "to": "native-media"
         }
       ]
     },

@@ -16,6 +16,7 @@ jobs:
           node-version: '22'
           cache: npm
       - run: npm ci
+      - run: npm run native:setup
       - run: npm run typecheck
       - run: npm run lint
       - run: npm test
@@ -64,6 +65,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Require real native validation before publishing
+        run: node scripts/release-gate.mjs
       - uses: actions/download-artifact@v4
         with:
           pattern: '*-release'

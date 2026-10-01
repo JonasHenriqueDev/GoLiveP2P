@@ -5,8 +5,15 @@ import WebSocket from 'ws';
 const work = resolve('work/app-smoke');
 mkdirSync(work, { recursive: true });
 const app = spawn(
-  resolve('node_modules/electron/dist/electron.exe'),
-  ['.', '--remote-debugging-port=9223'],
+  resolve(
+    process.argv.includes('--packaged')
+      ? 'release/win-unpacked/GoLive P2P.exe'
+      : 'node_modules/electron/dist/electron.exe',
+  ),
+  [
+    ...(process.argv.includes('--packaged') ? [] : ['.']),
+    '--remote-debugging-port=9223',
+  ],
   { cwd: process.cwd(), windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] },
 );
 app.stdout.on('data', (chunk) =>

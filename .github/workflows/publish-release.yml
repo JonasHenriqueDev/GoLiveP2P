@@ -2,12 +2,18 @@ name: Publish release binaries
 
 on:
   workflow_dispatch:
+    inputs:
+      linux_only:
+        description: Build only the receive-only Linux test client, without publishing
+        type: boolean
+        default: false
 
 permissions:
   contents: write
 
 jobs:
   windows:
+    if: ${{ !inputs.linux_only }}
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
@@ -52,15 +58,26 @@ jobs:
       - name: Verify Linux AppImage
         run: |
           VERSION=$(node -p "require('./package.json').version")
+          chmod +x "release/GoLive P2P-${VERSION}.AppImage"
+          "release/GoLive P2P-${VERSION}.AppImage" --appimage-extract >/dev/null
+          test -x squashfs-root/AppRun
+          test -f squashfs-root/resources/app.asar
+          test -f squashfs-root/libffmpeg.so
+          test -f squashfs-root/chrome-sandbox
           mv "release/GoLive P2P-${VERSION}.AppImage" "release/GoLive-P2P-${VERSION}.AppImage"
           test $(stat -c%s "release/GoLive-P2P-${VERSION}.AppImage") -gt 50000000
+          cd release
+          sha256sum "GoLive-P2P-${VERSION}.AppImage" > "SHA256SUMS-linux-client-${VERSION}.txt"
       - uses: actions/upload-artifact@v4
         with:
           name: linux-release
-          path: release/GoLive-P2P-*.AppImage
+          path: |
+            release/GoLive-P2P-*.AppImage
+            release/SHA256SUMS-linux-client-*.txt
           if-no-files-found: error
 
   publish:
+    if: ${{ !inputs.linux_only }}
     needs: [windows, linux]
     runs-on: ubuntu-latest
     steps:

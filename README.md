@@ -11,6 +11,20 @@ Aplicativo desktop para compartilhar tela com até cinco pessoas na mesma tailne
 
 O aplicativo não instala nem configura o Tailscale. Não exige IP público, abertura de portas no roteador, VPS, STUN ou TURN. As ACLs da tailnet e o firewall local precisam permitir TCP 47621 até o host e UDP entre os peers.
 
+## Downloads da versão 0.2.0
+
+- [Windows portátil (.exe)](https://github.com/JonasHenriqueDev/GoLiveP2P/raw/refs/heads/main/release/GoLive-P2P-Portable-0.2.0.exe)
+- Linux AppImage: baixe [parte 00](https://github.com/JonasHenriqueDev/GoLiveP2P/raw/refs/heads/main/release/GoLive-P2P-0.2.0.AppImage.part00) e [parte 01](https://github.com/JonasHenriqueDev/GoLiveP2P/raw/refs/heads/main/release/GoLive-P2P-0.2.0.AppImage.part01) na mesma pasta. O endpoint de anexos da release não aceitou uploads neste ambiente, então o AppImage foi dividido para hospedagem no repositório.
+
+No Linux, monte e verifique o arquivo:
+
+```bash
+cat GoLive-P2P-0.2.0.AppImage.part00 GoLive-P2P-0.2.0.AppImage.part01 > GoLive-P2P-0.2.0.AppImage
+printf '%s  %s\n' 'c8dd87c177a728bebc397ee7bfe06b526861ec17a85918753979648f2601e07a' 'GoLive-P2P-0.2.0.AppImage' | sha256sum --check
+chmod +x GoLive-P2P-0.2.0.AppImage
+./GoLive-P2P-0.2.0.AppImage
+```
+
 ## Desenvolvimento e builds
 
 ```bash

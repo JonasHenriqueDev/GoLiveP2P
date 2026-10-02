@@ -71,7 +71,7 @@ bool Protocol::server(const QJsonObject& v) {
   return client(mapped);
 }
 bool Protocol::mediaRequest(const QString& method, const QJsonObject& v) {
-  if (method == "start") {
+  if (method == "start" || method == "reconfigure") {
     static QRegularExpression source("^(monitor|window):[1-9][0-9]{0,19}$");
     const auto s = v["source"].toString(), m = v["method"].toString(), e = v["encoder"].toString();
     if (!source.match(s).hasMatch() ||
@@ -127,7 +127,7 @@ bool Protocol::mediaResult(const QString& method, const QJsonValue& value) {
   if (method == "capabilities")
     return value.isObject() && text(v, "runtime", 256) && v["capture"].isObject() &&
            v["webrtc"].isBool() && v["nvenc"].isBool() && v["openh264"].isBool();
-  if (method == "start")
+  if (method == "start" || method == "reconfigure")
     return value.isObject() && text(v, "encoder", 256) &&
            QStringList{"printwindow", "wgc", "dxgi"}.contains(v["method"].toString()) &&
            v["audio"].isBool() && v["borderRemovalVerified"] == false;

@@ -55,7 +55,7 @@ int main() {
   waveOutOpen(&output, WAVE_MAPPER, &format, 0, 0, CALLBACK_NULL);
   std::vector<short> samples(48000 * 2);
   for (size_t i = 0; i < samples.size() / 2; ++i) {
-    auto sample = (short)(700 * std::sin(2 * 3.141592653589793 * 440 * i / 48000));
+    auto sample = (short)(14000 * std::sin(2 * 3.141592653589793 * 440 * i / 48000));
     samples[i * 2] = samples[i * 2 + 1] = sample;
   }
   WAVEHDR header{};

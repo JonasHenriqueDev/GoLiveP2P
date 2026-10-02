@@ -15,6 +15,8 @@
 #include <gst/sdp/sdp.h>
 #include <gst/video/video-event.h>
 #include <gst/webrtc/webrtc.h>
+#include "receive-buffer.hpp"
+#include "audio-pacer.hpp"
 
 #include <atomic>
 #include <cmath>
@@ -178,6 +180,11 @@ class Engine {
   std::atomic<double> capturedAudioRms{0};
   std::atomic<uint64_t> nonSilentAudioFrames{0};
   std::thread audioWorker;
+  std::mutex audioMetricsMutex;
+  Json captureMetrics = Json::array();
+  std::atomic<uint64_t> audioScheduleSkipped{0}, audioMaxLateUs{0};
+  uint64_t lastAudioEvent = 0;
+  unsigned previousAudioSources = ~0u;
   static GstFlowReturn frame(GstAppSink* sink, gpointer data) {
     auto peer = static_cast<Peer*>(data);
     auto sample = gst_app_sink_pull_sample(sink);
@@ -253,9 +260,9 @@ class Engine {
       emit(
           {{"event", "state"}, {"peer", peer->id}, {"state", names[std::clamp(connection, 0, 5)]}});
   }
-  static void decoded(GstElement*, GstPad* pad, gpointer data) {
+  static void decodedCaps(GstPad* pad, gpointer data, GstCaps* provided = nullptr) {
     auto peer = static_cast<Peer*>(data);
-    auto caps = gst_pad_get_current_caps(pad);
+    auto caps = provided ? gst_caps_ref(provided) : gst_pad_get_current_caps(pad);
     if (!caps) return;
     auto structure = gst_caps_get_structure(caps, 0);
     const char* name = gst_structure_get_name(structure);
@@ -267,9 +274,19 @@ class Engine {
       peer->width = width;
       peer->height = height;
       gst_pad_add_probe(
-          pad, GST_PAD_PROBE_TYPE_BUFFER,
-          [](GstPad*, GstPadProbeInfo*, gpointer user) -> GstPadProbeReturn {
-            ++static_cast<Peer*>(user)->receivedFrames;
+          pad, (GstPadProbeType)(GST_PAD_PROBE_TYPE_BUFFER | GST_PAD_PROBE_TYPE_EVENT_DOWNSTREAM),
+          [](GstPad*, GstPadProbeInfo* info, gpointer user) -> GstPadProbeReturn {
+            auto peer = static_cast<Peer*>(user);
+            if (GST_PAD_PROBE_INFO_TYPE(info) & GST_PAD_PROBE_TYPE_BUFFER) ++peer->receivedFrames;
+            else {
+              auto event = GST_PAD_PROBE_INFO_EVENT(info);
+              if (event && GST_EVENT_TYPE(event) == GST_EVENT_CAPS) {
+                GstCaps* changed = nullptr; gst_event_parse_caps(event, &changed);
+                auto s = gst_caps_get_structure(changed, 0); int w = 0, h = 0;
+                gst_structure_get_int(s, "width", &w); gst_structure_get_int(s, "height", &h);
+                peer->width = w; peer->height = h;
+              }
+            }
             return GST_PAD_PROBE_OK;
           },
           peer, nullptr);
@@ -288,15 +305,23 @@ class Engine {
 #endif
     } else if (g_str_has_prefix(name, "audio/x-raw"))
       chain =
-          "queue ! audioconvert ! audioresample ! "
+          "queue max-size-buffers=0 max-size-bytes=0 max-size-time=500000000 ! audioconvert ! audioresample ! "
           "audio/x-raw,format=F32LE,channels=2,rate=48000,layout=interleaved ! tee name=sound "
 #ifdef _WIN32
-          "sound. ! queue ! audioconvert ! wasapi2sink sync=true sound. ! queue ! appsink "
+          "sound. ! queue max-size-buffers=0 max-size-bytes=0 max-size-time=500000000 ! audioconvert ! wasapi2sink name=playback sync=true buffer-time=200000 latency-time=20000 sound. ! queue leaky=downstream max-size-buffers=2 ! appsink "
 #else
-          "sound. ! queue ! audioconvert ! autoaudiosink sync=true sound. ! queue ! appsink "
+          "sound. ! queue max-size-buffers=0 max-size-bytes=0 max-size-time=500000000 ! audioconvert ! autoaudiosink name=playback sync=true sound. ! queue leaky=downstream max-size-buffers=2 ! appsink "
 #endif
           "name=meter emit-signals=true sync=false max-buffers=2 drop=true";
     gst_caps_unref(caps);
+#ifndef _WIN32
+    if (available("pulsesink")) {
+      const auto sink = chain.find("autoaudiosink name=playback sync=true");
+      if (sink != std::string::npos)
+        chain.replace(sink, strlen("autoaudiosink name=playback sync=true"),
+                      "pulsesink name=playback sync=true buffer-time=200000 latency-time=20000 slave-method=resample");
+    }
+#endif
     if (chain.empty() || peer->closing) return;
     GError* error = nullptr;
     auto bin = gst_parse_bin_from_description(chain.c_str(), TRUE, &error);
@@ -323,17 +348,62 @@ class Engine {
     gst_object_unref(target);
     gst_element_sync_state_with_parent(bin);
   }
+  static void decoded(GstElement*, GstPad* pad, gpointer data) { decodedCaps(pad, data); }
   static void incoming(GstElement*, GstPad* pad, gpointer data) {
     if (GST_PAD_DIRECTION(pad) != GST_PAD_SRC) return;
     auto peer = static_cast<Peer*>(data);
     if (peer->closing) return;
-    auto decoder = gst_element_factory_make("decodebin", nullptr);
-    g_signal_connect(decoder, "pad-added", G_CALLBACK(decoded), peer);
-    gst_bin_add(GST_BIN(peer->pipeline), decoder);
-    auto sink = gst_element_get_static_pad(decoder, "sink");
-    gst_pad_link(pad, sink);
-    gst_object_unref(sink);
-    gst_element_sync_state_with_parent(decoder);
+    auto caps = gst_pad_get_current_caps(pad);
+    const auto info = caps && gst_caps_get_size(caps) ? gst_caps_get_structure(caps, 0) : nullptr;
+    const auto encodingValue = info ? gst_structure_get_string(info, "encoding-name") : nullptr;
+    const std::string encoding = encodingValue ? encodingValue : "";
+    const bool opus = g_ascii_strcasecmp(encoding.c_str(), "OPUS") == 0;
+    if (caps) gst_caps_unref(caps);
+    bool explicitCodec = opus;
+    std::string codec = "rtpopusdepay ! opusdec name=opusdecoder plc=true use-inband-fec=true";
+#ifndef _WIN32
+    if (g_ascii_strcasecmp(encoding.c_str(), "H264") == 0) {
+      explicitCodec = true;
+      codec = "rtph264depay ! h264parse ! avdec_h264";
+    }
+#endif
+    if (explicitCodec) {
+      GError* failure = nullptr;
+      auto decoder = gst_parse_bin_from_description(codec.c_str(), TRUE, &failure);
+      if (failure) {
+        emit({{"event", "error"}, {"peer", peer->id}, {"message", failure->message}});
+        g_error_free(failure);
+        if (decoder) gst_object_unref(decoder);
+        return;
+      }
+      if (!decoder) return;
+      gst_bin_add(GST_BIN(peer->pipeline), decoder);
+      auto sink = gst_element_get_static_pad(decoder, "sink");
+      gst_pad_link(pad, sink);
+      gst_object_unref(sink);
+      auto source = gst_element_get_static_pad(decoder, "src");
+      // Raw caps are negotiated asynchronously, so attach the output once CAPS arrives.
+      gst_pad_add_probe(source, GST_PAD_PROBE_TYPE_EVENT_DOWNSTREAM,
+        [](GstPad* output, GstPadProbeInfo* probe, gpointer data) -> GstPadProbeReturn {
+          if (GST_EVENT_TYPE(GST_PAD_PROBE_INFO_EVENT(probe)) == GST_EVENT_CAPS) {
+            GstCaps* caps = nullptr;
+            gst_event_parse_caps(GST_PAD_PROBE_INFO_EVENT(probe), &caps);
+            decodedCaps(output, data, caps);
+            return GST_PAD_PROBE_REMOVE;
+          }
+          return GST_PAD_PROBE_OK;
+        }, peer, nullptr);
+      gst_object_unref(source);
+      gst_element_sync_state_with_parent(decoder);
+    } else {
+      auto decoder = gst_element_factory_make("decodebin", nullptr);
+      g_signal_connect(decoder, "pad-added", G_CALLBACK(decoded), peer);
+      gst_bin_add(GST_BIN(peer->pipeline), decoder);
+      auto sink = gst_element_get_static_pad(decoder, "sink");
+      gst_pad_link(pad, sink);
+      gst_object_unref(sink);
+      gst_element_sync_state_with_parent(decoder);
+    }
   }
   void description(Peer& peer, bool offer) {
     auto promise = gst_promise_new();
@@ -372,21 +442,23 @@ class Engine {
     auto peer = std::make_unique<Peer>();
     peer->id = id;
     peer->candidates = std::move(queued);
-    std::string chain = "webrtcbin name=rtc bundle-policy=max-bundle latency=40";
+    std::string chain = "webrtcbin name=rtc bundle-policy=max-bundle";
     if (sender)
       chain +=
           " appsrc name=video is-live=true format=time do-timestamp=true max-buffers=3 "
           "leaky-type=downstream ! queue max-size-buffers=3 leaky=downstream ! h264parse ! "
           "rtph264pay config-interval=-1 pt=96 aggregate-mode=zero-latency ! "
           "application/x-rtp,media=video,encoding-name=H264,payload=96,clock-rate=90000 ! rtc.";
-    if (sender && audioEnabled)
+    // Keep the Opus track negotiated even when capture audio is disabled, so
+    // switching source/audio policy does not tear down a PeerConnection.
+    if (sender)
       chain +=
-          " appsrc name=audio is-live=true format=time do-timestamp=false max-buffers=10 "
+          " appsrc name=audio is-live=true format=time do-timestamp=false max-buffers=30 "
           "leaky-type=downstream "
           "caps=\"audio/x-raw,format=S16LE,rate=48000,channels=2,layout=interleaved\" ! queue "
-          "max-size-time=100000000 leaky=downstream ! audioconvert ! audioresample ! opusenc "
-          "bitrate=128000 audio-type=restricted-lowdelay frame-size=10 ! rtpopuspay pt=97 ! "
-          "application/x-rtp,media=audio,encoding-name=OPUS,payload=97,clock-rate=48000 ! rtc.";
+          "max-size-buffers=0 max-size-bytes=0 max-size-time=300000000 ! audioconvert ! audioresample ! opusenc "
+          "bitrate=128000 audio-type=generic frame-size=20 inband-fec=true packet-loss-percentage=10 ! rtpopuspay pt=97 ! "
+          "application/x-rtp,media=audio,encoding-name=OPUS,payload=97,clock-rate=48000,encoding-params=(string)2,useinbandfec=(string)1 ! rtc.";
     auto parsed = parse(chain);
     if (GST_IS_PIPELINE(parsed))
       peer->pipeline = parsed;
@@ -396,6 +468,14 @@ class Engine {
     }
     peer->rtc = gst_bin_get_by_name(GST_BIN(peer->pipeline), "rtc");
     if (!peer->rtc) throw std::runtime_error("WebRTC element missing from pipeline");
+    ReceiveBuffer::configure(peer->rtc, sender);
+    auto rtp = gst_bin_get_by_name(GST_BIN(peer->rtc), "rtpbin");
+    if (rtp) {
+      g_signal_connect(rtp, "new-jitterbuffer", G_CALLBACK(+[](GstElement*, GstElement* buffer, guint, guint, gpointer) {
+        g_object_set(buffer, "do-lost", TRUE, nullptr);
+      }), nullptr);
+      gst_object_unref(rtp);
+    }
     peer->video = gst_bin_get_by_name(GST_BIN(peer->pipeline), "video");
     peer->audio = gst_bin_get_by_name(GST_BIN(peer->pipeline), "audio");
     if (peer->audio) {
@@ -445,11 +525,10 @@ class Engine {
       }
     }
   }
-  void stop() {
+  void stopCapture() {
 #ifdef _WIN32
     windowSource.reset();
 #endif
-    earlyCandidates.clear();
     audioRunning = false;
     if (audioWorker.joinable()) audioWorker.join();
     audioSources = 0;
@@ -463,23 +542,20 @@ class Engine {
       gst_object_unref(encoder);
       encoder = nullptr;
     }
-    std::map<std::string, std::unique_ptr<Peer>> old;
-    {
-      std::lock_guard<std::mutex> lock(peerMutex);
-      old.swap(peers);
-    }
     if (keyframe) {
       gst_sample_unref(keyframe);
       keyframe = nullptr;
     }
   }
-  Json start(const Json& config) {
+  void stop() {
+    stopCapture();
+    earlyCandidates.clear();
+    std::map<std::string, std::unique_ptr<Peer>> old;
+    std::lock_guard<std::mutex> lock(peerMutex);
+    old.swap(peers);
+  }
+  Json start(const Json& config, bool preserve = false) {
 #ifdef _WIN32
-    stop();
-    settings = config;
-    encodedFrames = 0;
-    nonSilentAudioFrames = 0;
-    audioEnabled = config.value("audio", false);
     const auto source = config.at("source").get<std::string>();
     auto method = config.at("method").get<std::string>();
     const bool automatic = method == "auto";
@@ -488,7 +564,7 @@ class Engine {
       throw std::runtime_error("Source no longer exists");
     bool window = source.rfind("window:", 0) == 0;
     process_audio::Process selectedOwner{0, 0, L"", L"", 0};
-    if (window && audioEnabled) {
+    if (window && config.value("audio", false)) {
       DWORD ownerPid = 0;
       GetWindowThreadProcessId(reinterpret_cast<HWND>(std::stoull(source.substr(7))), &ownerPid);
       const auto processes = process_audio::snapshot();
@@ -506,6 +582,14 @@ class Engine {
     if (width < 320 || width > 2560 || height < 180 || height > 1440 || (fps != 30 && fps != 60) ||
         bitrate < 500000 || bitrate > 20000000)
       throw std::runtime_error("Invalid media settings");
+    // Validate before releasing the old capture. Retain transports, RTP
+    // sequence numbers, appsrc clocks and the room's streamer identity.
+    if (preserve) stopCapture(); else stop();
+    settings = config;
+    if (!preserve) encodedFrames = 0;
+    const auto firstEncodedFrame = encodedFrames.load();
+    nonSilentAudioFrames = 0;
+    audioEnabled = config.value("audio", false);
     std::string handle = source.substr(source.find(':') + 1);
     std::string captureSpec = "d3d11screencapturesrc capture-api=" + method +
                               " show-cursor=true show-border=false " +
@@ -554,7 +638,7 @@ class Engine {
              std::string("Hardware pipeline unavailable; retrying OpenH264: ") + error.what()}});
       auto fallback = config;
       fallback["encoder"] = "software";
-      return start(fallback);
+      return start(fallback, preserve);
     }
     encoder = gst_bin_get_by_name(GST_BIN(capture), "encoder");
     auto output = gst_bin_get_by_name(GST_BIN(capture), "encoded");
@@ -565,14 +649,14 @@ class Engine {
     gst_object_unref(preview);
     if (gst_element_set_state(capture, GST_STATE_PLAYING) == GST_STATE_CHANGE_FAILURE) {
       bool retry = !software;
-      stop();
+      if (preserve) stopCapture(); else stop();
       if (retry) {
         emit({{"event", "warning"},
               {"peer", "local"},
               {"message", "Hardware initialization failed; retrying OpenH264"}});
         auto fallback = config;
         fallback["encoder"] = "software";
-        return start(fallback);
+        return start(fallback, preserve);
       }
       throw std::runtime_error("Native capture failed");
     }
@@ -583,16 +667,16 @@ class Engine {
         windowSource->start(raw, reinterpret_cast<HWND>(std::stoull(handle)), width, height, fps);
       } catch (...) {
         gst_object_unref(raw);
-        stop();
+        if (preserve) stopCapture(); else stop();
         throw;
       }
       gst_object_unref(raw);
     }
-    for (int attempt = 0; attempt < 500 && encodedFrames == 0; ++attempt) {
+    for (int attempt = 0; attempt < 500 && encodedFrames == firstEncodedFrame; ++attempt) {
       if (windowSource && windowSource->unhealthy()) break;
       Sleep(10);
     }
-    if (encodedFrames == 0) {
+    if (encodedFrames == firstEncodedFrame) {
       auto bus = gst_element_get_bus(capture);
       auto message = gst_bus_pop_filtered(bus, GST_MESSAGE_ERROR);
       std::string reason = "Capture did not deliver encoded video within five seconds";
@@ -610,7 +694,7 @@ class Engine {
       gst_object_unref(bus);
       bool captureFailed = windowSource && windowSource->unhealthy();
       bool retry = !software;
-      stop();
+      if (preserve) stopCapture(); else stop();
       if (automatic && method == "printwindow" && captureFailed) {
         emit({{"event", "warning"},
               {"peer", "local"},
@@ -619,7 +703,7 @@ class Engine {
                "capture border"}});
         auto fallback = config;
         fallback["method"] = "wgc";
-        return start(fallback);
+        return start(fallback, preserve);
       }
       if (captureFailed) throw std::runtime_error("Native window capture failed or exceeded its deadline");
       if (retry) {
@@ -628,11 +712,26 @@ class Engine {
               {"message", "Hardware encoder failed; retrying OpenH264: " + reason}});
         auto fallback = config;
         fallback["encoder"] = "software";
-        return start(fallback);
+        return start(fallback, preserve);
       }
       throw std::runtime_error(reason);
     }
     if (audioEnabled) {
+      // Rebase only at a capture switch. The normal worker remains sample
+      // clocked; this gap must not compress the new source into stale PTS.
+      if (preserve) {
+        std::lock_guard<std::mutex> lock(peerMutex);
+        for (auto& [id, peer] : peers) {
+          auto clock = gst_element_get_clock(peer->pipeline);
+          if (!clock) continue;
+          const auto now = gst_clock_get_time(clock);
+          const auto base = gst_element_get_base_time(peer->pipeline);
+          if (now >= base)
+            peer->sentAudioFrames = std::max(peer->sentAudioFrames,
+                gst_util_uint64_scale(now - base, 48000, GST_SECOND));
+          gst_object_unref(clock);
+        }
+      }
       audioRunning = true;
       audioWorker = std::thread([this, config, window, selectedOwner] {
         const HRESULT apartment = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
@@ -644,6 +743,7 @@ class Engine {
           return;
         }
         try {
+          process_audio::AudioPriority priority;
           process_audio::Mixer mixer;
           mixer.start(config, window ? &selectedOwner : nullptr);
           // An audio packet represents exactly 480 samples at 48 kHz. Use a sample clock
@@ -653,13 +753,19 @@ class Engine {
           process_audio::ScopedHandle fallbackTimer(timer.get() ? nullptr : CreateWaitableTimerW(nullptr, FALSE, nullptr));
           HANDLE clockTimer = timer.get() ? timer.get() : fallbackTimer.get();
           LARGE_INTEGER due{};
-          due.QuadPart = -100000;
-          if (!clockTimer || !SetWaitableTimer(clockTimer, &due, 10, nullptr, nullptr, FALSE))
-            throw std::runtime_error("Audio scheduling clock unavailable");
-          size_t previous = SIZE_MAX;
+          if (!clockTimer) throw std::runtime_error("Audio scheduling clock unavailable");
+          AudioPacer pacer;
+          const auto epoch = std::chrono::steady_clock::now();
+          auto elapsed = [&] { return static_cast<uint64_t>(std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - epoch).count()); };
           ULONGLONG lastMeter = 0;
-          double peakRms = 0;
+          uint64_t lastSkipped = 0;
           while (audioRunning) {
+            const auto packets = pacer.due(elapsed());
+            const auto skippedFrames = (pacer.skippedPackets - lastSkipped) * 480;
+            lastSkipped = pacer.skippedPackets;
+            audioScheduleSkipped = pacer.skippedPackets;
+            audioMaxLateUs = pacer.maxLatenessUs;
+            for (unsigned packet = 0; packet < packets && audioRunning; ++packet) {
             auto samples = mixer.packet();
             auto count = mixer.active();
             double energy = 0;
@@ -669,16 +775,14 @@ class Engine {
             }
             const double rms = samples.empty() ? 0 : std::sqrt(energy / samples.size());
             if (rms > 0.0001) nonSilentAudioFrames += samples.size() / 2;
-            peakRms = std::max(peakRms, rms);
             audioSources = static_cast<unsigned>(count);
             capturedAudioRms = rms;
             const auto now = GetTickCount64();
-            if (count != previous || now - lastMeter >= 1000) {
-              previous = count;
+            if (now - lastMeter >= 1000) {
               lastMeter = now;
-              emit({{"event", "audio-state"}, {"active", count > 0}, {"sources", count},
-                    {"rms", peakRms}, {"nonSilentFrames", nonSilentAudioFrames.load()}});
-              peakRms = 0;
+              const auto metrics = mixer.metrics();
+              std::lock_guard<std::mutex> lock(audioMetricsMutex);
+              captureMetrics = metrics;
             }
             {
               std::lock_guard<std::mutex> lock(peerMutex);
@@ -687,13 +791,20 @@ class Engine {
                   auto buffer = gst_buffer_new_allocate(nullptr, samples.size() * 2, nullptr);
                   if (!buffer) throw std::runtime_error("Audio buffer allocation failed");
                   gst_buffer_fill(buffer, 0, samples.data(), samples.size() * 2);
+                  if (packet == 0) peer->sentAudioFrames += skippedFrames;
                   GST_BUFFER_PTS(buffer) = gst_util_uint64_scale(peer->sentAudioFrames, GST_SECOND, 48000);
                   GST_BUFFER_DURATION(buffer) = 10 * GST_MSECOND;
                   peer->sentAudioFrames += samples.size() / 2;
                   gst_app_src_push_buffer(GST_APP_SRC(peer->audio), buffer);
                 }
             }
-            if (WaitForSingleObject(clockTimer, 100) != WAIT_OBJECT_0)
+            }
+            // One-shot high resolution deadlines do not lose/coalesce periodic ticks.
+            due.QuadPart = -static_cast<LONGLONG>(pacer.waitUs(elapsed()) * 10);
+            if (!SetWaitableTimer(clockTimer, &due, 0, nullptr, nullptr, FALSE))
+              throw std::runtime_error("Audio scheduling clock failed");
+            const auto waited = WaitForSingleObject(clockTimer, 100);
+            if (waited != WAIT_OBJECT_0 && waited != WAIT_TIMEOUT)
               throw std::runtime_error("Audio scheduling wait failed");
           }
           mixer.stop();
@@ -719,8 +830,28 @@ class Engine {
             {"audio", false}};
 #else
     (void)config;
+    (void)preserve;
     throw std::runtime_error("Linux is receive-only in this release");
 #endif
+  }
+  Json reconfigure(const Json& config) {
+    if (!capture) throw std::runtime_error("Capture not started");
+    const auto previous = settings;
+    try {
+      return start(config, true);
+    } catch (const std::exception& error) {
+      const std::string reason = error.what();
+      try {
+        start(previous, true);
+        emit({{"event", "warning"}, {"peer", "local"},
+              {"message", "Source change failed; previous capture restored: " + reason}});
+      } catch (...) {
+        stop();
+        emit({{"event", "error"}, {"peer", "local"},
+              {"message", "Source change and capture recovery failed"}});
+      }
+      throw std::runtime_error(reason);
+    }
   }
   void offer(const std::string& id) {
     if (!capture) throw std::runtime_error("Capture not started");
@@ -853,6 +984,14 @@ class Engine {
     g_free(bytes);
   }
   void poll() {
+    const auto now = static_cast<uint64_t>(g_get_monotonic_time() / 1000);
+    const auto sources = audioSources.load();
+    if (audioRunning && (sources != previousAudioSources || now - lastAudioEvent >= 1000)) {
+      previousAudioSources = sources;
+      lastAudioEvent = now;
+      emit({{"event", "audio-state"}, {"active", sources > 0}, {"sources", sources},
+            {"rms", capturedAudioRms.load()}, {"nonSilentFrames", nonSilentAudioFrames.load()}});
+    }
 #ifdef _WIN32
     if (windowSource && windowSource->unhealthy()) {
       emit({{"event", "error"}, {"peer", "local"},
@@ -890,6 +1029,33 @@ class Engine {
       gst_object_unref(bus);
     }
   }
+  static Json audioDiagnostics(GstElement* pipeline) {
+    Json out = Json::object();
+    auto iterator = gst_bin_iterate_recurse(GST_BIN(pipeline));
+    GValue value = G_VALUE_INIT;
+    bool done = false;
+    while (!done) {
+      switch (gst_iterator_next(iterator, &value)) {
+        case GST_ITERATOR_OK: {
+          auto element = GST_ELEMENT(g_value_get_object(&value));
+          auto factory = gst_element_get_factory(element);
+          const auto name = factory ? gst_plugin_feature_get_name(GST_PLUGIN_FEATURE(factory)) : "";
+          if (!strcmp(name, "opusdec") || !strcmp(name, "rtpjitterbuffer")) {
+            GstStructure* stats = nullptr;
+            g_object_get(element, "stats", &stats, nullptr);
+            if (stats) { out[name] = structureJson(stats); gst_structure_free(stats); }
+          }
+          g_value_reset(&value);
+          break;
+        }
+        case GST_ITERATOR_RESYNC: gst_iterator_resync(iterator); break;
+        default: done = true; break;
+      }
+    }
+    if (G_IS_VALUE(&value)) g_value_unset(&value);
+    gst_iterator_free(iterator);
+    return out;
+  }
   Json stats() {
     Json out = Json::object();
     for (auto& [id, peer] : peers) {
@@ -904,15 +1070,18 @@ class Engine {
                  {"connection", connection},
                  {"ice", iceState},
                  {"audioRms", peer->audioRms.load()},
-                 {"audioFrames", peer->audioFrames.load()},
+                 {"audioFrames", peer->audioFrames.load()}, {"audioRecovery", audioDiagnostics(peer->pipeline)},
                  {"receivedFrames", peer->receivedFrames.load()},
                  {"width", peer->width.load()},
                  {"height", peer->height.load()}};
       gst_promise_unref(promise);
     }
+    Json captureLevels;
+    { std::lock_guard<std::mutex> lock(audioMetricsMutex); captureLevels = captureMetrics; }
     return {{"peers", out},
             {"audio", {{"sources", audioSources.load()}, {"rms", capturedAudioRms.load()},
-                       {"nonSilentFrames", nonSilentAudioFrames.load()}}},
+                       {"nonSilentFrames", nonSilentAudioFrames.load()}, {"captureBuffers", captureLevels},
+                       {"schedulerSkippedPackets", audioScheduleSkipped.load()}, {"schedulerMaxLateUs", audioMaxLateUs.load()}}},
             {"encodedFrames", encodedFrames.load()},
             {"width", settings.value("width", 0)},
             {"height", settings.value("height", 0)}};
@@ -964,6 +1133,7 @@ class Engine {
               {"openh264", available("openh264enc")},
               {"webrtc", available("webrtcbin") && available("nicesrc")}};
     if (method == "start") return start(data);
+    if (method == "reconfigure") return reconfigure(data);
     if (method == "offer") {
       offer(data.at("peer"));
       return nullptr;

@@ -6,6 +6,9 @@
 #include <tlhelp32.h>
 #include <wrl/client.h>
 
+#include "audio-fifo.hpp"
+#include <avrt.h>
+#include <condition_variable>
 #include <cwctype>
 #include <deque>
 #include <functional>
@@ -22,6 +25,25 @@ class ScopedHandle {
   ScopedHandle(const ScopedHandle&) = delete;
   ScopedHandle& operator=(const ScopedHandle&) = delete;
   HANDLE get() const { return handle; }
+};
+// MMCSS is optional: scheduling still works if the system denies enrollment.
+class AudioPriority {
+  HMODULE module = LoadLibraryExW(L"avrt.dll", nullptr, LOAD_LIBRARY_SEARCH_SYSTEM32);
+  HANDLE task = nullptr;
+ public:
+  AudioPriority() {
+    if (!module) return;
+    auto enroll = reinterpret_cast<decltype(&AvSetMmThreadCharacteristicsW)>(GetProcAddress(module, "AvSetMmThreadCharacteristicsW"));
+    DWORD index = 0;
+    if (enroll) task = enroll(L"Audio", &index);
+  }
+  ~AudioPriority() {
+    if (task) {
+      auto revert = reinterpret_cast<decltype(&AvRevertMmThreadCharacteristics)>(GetProcAddress(module, "AvRevertMmThreadCharacteristics"));
+      if (revert) revert(task);
+    }
+    if (module) FreeLibrary(module);
+  }
 };
 struct RetrySchedule {
   uint64_t identity = 0, due = 0;
@@ -68,31 +90,58 @@ struct Process {
   std::wstring name, image;
   uint64_t created = 0;
 };
-inline std::vector<Process> snapshot() {
+inline std::vector<Process> snapshot(DWORD root = 0) {
   std::vector<Process> out;
-  HANDLE snap = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
-  if (snap == INVALID_HANDLE_VALUE) return out;
-  PROCESSENTRY32W entry{};
-  entry.dwSize = sizeof(entry);
-  if (Process32FirstW(snap, &entry)) do {
-      Process item{entry.th32ProcessID, entry.th32ParentProcessID, entry.szExeFile, L""};
-      std::transform(item.name.begin(), item.name.end(), item.name.begin(), towlower);
-      HANDLE handle = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, item.pid);
-      if (handle) {
-        std::vector<wchar_t> path(32768);
-        DWORD length = 32768;
-        FILETIME created{}, exit{}, kernel{}, user{};
-        if (QueryFullProcessImageNameW(handle, 0, path.data(), &length) &&
-            GetProcessTimes(handle, &created, &exit, &kernel, &user)) {
-          item.image.assign(path.data(), length);
-          std::transform(item.image.begin(), item.image.end(), item.image.begin(), towlower);
-          item.created = (uint64_t(created.dwHighDateTime) << 32) | created.dwLowDateTime;
-        }
-        CloseHandle(handle);
+  ScopedHandle snap(CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0));
+  if (snap.get() == INVALID_HANDLE_VALUE) return out;
+  PROCESSENTRY32W entry{}; entry.dwSize = sizeof(entry);
+  if (Process32FirstW(snap.get(), &entry)) do {
+    Process item{entry.th32ProcessID, entry.th32ParentProcessID, entry.szExeFile, L""};
+    std::transform(item.name.begin(), item.name.end(), item.name.begin(), towlower);
+    out.push_back(std::move(item));
+  } while (Process32NextW(snap.get(), &entry));
+  std::set<DWORD> required;
+  auto lookup = [&](DWORD pid) -> const Process* {
+    const auto it = std::find_if(out.begin(), out.end(), [pid](const auto& item) { return item.pid == pid; });
+    return it == out.end() ? nullptr : &*it;
+  };
+  if (root) {
+    // Enumerate EVERY process relationship. Query costly identities only for
+    // the selected tree, its ancestors, and our engine's own ancestry.
+    // Unknown identities in that relevant graph still fail safe().
+    for (const auto& item : out) {
+      auto pid = item.pid;
+      for (size_t i = 0; i < out.size(); ++i) {
+        if (pid == root) { required.insert(item.pid); break; }
+        const auto parent = lookup(pid);
+        if (!parent || !parent->parent || parent->parent == pid) break;
+        pid = parent->parent;
       }
-      out.push_back(std::move(item));
-    } while (Process32NextW(snap, &entry));
-  CloseHandle(snap);
+    }
+    for (DWORD origin : {root, GetCurrentProcessId()}) {
+      auto pid = origin;
+      for (size_t i = 0; i < out.size(); ++i) {
+        required.insert(pid);
+        const auto item = lookup(pid);
+        if (!item || !item->parent || item->parent == pid) break;
+        pid = item->parent;
+      }
+    }
+  }
+  for (auto& item : out) {
+    if (root && !required.count(item.pid)) continue;
+    ScopedHandle handle(OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, item.pid));
+    if (handle.get()) {
+      std::vector<wchar_t> path(32768); DWORD length = 32768;
+      FILETIME created{}, exited{}, kernel{}, user{};
+      if (QueryFullProcessImageNameW(handle.get(), 0, path.data(), &length) &&
+          GetProcessTimes(handle.get(), &created, &exited, &kernel, &user)) {
+        item.image.assign(path.data(), length);
+        std::transform(item.image.begin(), item.image.end(), item.image.begin(), towlower);
+        item.created = (uint64_t(created.dwHighDateTime) << 32) | created.dwLowDateTime;
+      }
+    }
+  }
   return out;
 }
 inline const Process* find(DWORD pid, const std::vector<Process>& list) {
@@ -235,11 +284,14 @@ class Capture {
   uint64_t created;
   std::thread worker;
   std::mutex mutex;
-  std::deque<int16_t> queue;
+  AudioFifo queue;
+  uint64_t capturedFrames = 0, capturePackets = 0, startedAt = 0, maximumScanUs = 0;
+  UINT32 endpointFrames = 0;
   std::atomic<bool> running{true};
   std::atomic<HRESULT> result{E_PENDING};
   ScopedHandle initialized{CreateEventW(nullptr, FALSE, FALSE, nullptr)};
   void run() {
+    AudioPriority priority;
     const HRESULT apartment = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
     if (FAILED(apartment)) {
       result = apartment;
@@ -296,10 +348,16 @@ class Capture {
                                               AUDCLNT_STREAMFLAGS_LOOPBACK |
                                                   AUDCLNT_STREAMFLAGS_EVENTCALLBACK |
                                                   AUDCLNT_STREAMFLAGS_AUTOCONVERTPCM,
-                                              0, 0, &format, nullptr);
+                                              2000000, 0, &format, nullptr);
+    if (SUCCEEDED(result)) {
+      UINT32 frames = 0;
+      // Process loopback implementations can report unusable endpoint sizes.
+      if (SUCCEEDED(client->GetBufferSize(&frames)) && frames <= 48000) endpointFrames = frames;
+    }
     if (SUCCEEDED(result)) result = client->GetService(IID_PPV_ARGS(&capture));
     if (SUCCEEDED(result)) result = client->SetEventHandle(event.get());
     if (SUCCEEDED(result)) result = client->Start();
+    startedAt = GetTickCount64();
     SetEvent(initialized.get());
     while (running && SUCCEEDED(result)) {
       if (!event.get()) {
@@ -311,7 +369,10 @@ class Capture {
         result = HRESULT_FROM_WIN32(GetLastError());
         break;
       }
-      auto list = snapshot();
+      const auto scanStart = std::chrono::steady_clock::now();
+      auto list = snapshot(pid);
+      const auto scanTime = static_cast<uint64_t>(std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - scanStart).count());
+      { std::lock_guard<std::mutex> lock(mutex); maximumScanUs = std::max(maximumScanUs, scanTime); }
       auto identity = find(pid, list);
       if (!process.get() || !identity || identity->created != created || !safe(pid, list) ||
           WaitForSingleObject(process.get(), 0) != WAIT_TIMEOUT) {
@@ -321,8 +382,8 @@ class Capture {
       result =
           drainPackets(capture.Get(), [this](const int16_t* samples, UINT32 frames, bool silent) {
             std::lock_guard<std::mutex> lock(mutex);
-            for (UINT32 i = 0; i < frames * 2; ++i) queue.push_back(silent ? 0 : samples[i]);
-            while (queue.size() > 9600) queue.pop_front();
+            capturedFrames += frames; ++capturePackets;
+            queue.push(samples, frames, silent);
           });
     }
     running = false;
@@ -361,25 +422,36 @@ class Capture {
   bool active() const { return running && SUCCEEDED(result.load()); }
   HRESULT status() const { return result; }
   uint64_t identity() const { return created; }
+  DWORD processId() const { return pid; }
+  Json metrics() {
+    std::lock_guard<std::mutex> lock(mutex);
+    return {{"bufferFrames", queue.frames()}, {"underruns", queue.underruns}, {"trimmedFrames", queue.trimmedFrames}, {"capturedFrames", capturedFrames}, {"capturePackets", capturePackets}, {"elapsedMs", GetTickCount64() - startedAt}, {"maxPolicyScanUs", maximumScanUs}, {"endpointBufferFrames", endpointFrames}};
+  }
   void mix(std::vector<int32_t>& output) {
     std::lock_guard<std::mutex> lock(mutex);
     if (!active()) {
       queue.clear();
       return;
     }
-    for (size_t i = 0; i < output.size() && !queue.empty(); ++i) {
-      output[i] += queue.front();
-      queue.pop_front();
-    }
+    queue.mix(output);
   }
 };
 class Mixer {
-  std::map<DWORD, std::unique_ptr<Capture>> captures;
+  std::map<DWORD, std::shared_ptr<Capture>> captures;
+  std::mutex captureMutex, waitMutex;
+  std::condition_variable wake;
+  std::thread manager;
+  std::atomic<bool> managing{false};
+  std::vector<std::shared_ptr<Capture>> current() {
+    std::lock_guard<std::mutex> lock(captureMutex);
+    std::vector<std::shared_ptr<Capture>> out;
+    for (auto& item : captures) out.push_back(item.second);
+    return out;
+  }
   std::set<std::string> permitted;
   DWORD windowPid = 0;
   HWND windowHandle = nullptr;
   uint64_t windowCreated = 0;
-  uint64_t lastScan = 0;
   std::map<DWORD, RetrySchedule> failed;
 
   void retry(DWORD pid, uint64_t created, HRESULT result) {
@@ -393,7 +465,11 @@ class Mixer {
   }
 
  public:
+  ~Mixer() { stop(); }
   void stop() {
+    managing = false;
+    wake.notify_all();
+    if (manager.joinable()) manager.join();
     captures.clear();
     permitted.clear();
     windowPid = 0;
@@ -419,8 +495,22 @@ class Mixer {
     } else
       for (auto& image : settings.value("allowedAudioApps", Json::array()))
         permitted.insert(image.get<std::string>());
-    lastScan = 0;
-    refresh();
+    managing = true;
+    manager = std::thread([this] {
+      const auto apartment = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
+      if (FAILED(apartment)) { managing = false; return; }
+      while (managing) {
+        try { refresh(); }
+        catch (...) {
+          std::map<DWORD, std::shared_ptr<Capture>> old;
+          { std::lock_guard<std::mutex> lock(captureMutex); old.swap(captures); }
+          emit({{"event", "warning"}, {"peer", "local"}, {"message", "Audio source scan failed; audio sources blocked"}});
+        }
+        std::unique_lock<std::mutex> lock(waitMutex);
+        wake.wait_for(lock, std::chrono::milliseconds(500), [this] { return !managing; });
+      }
+      CoUninitialize();
+    });
   }
   void refresh() {
     auto list = snapshot();
@@ -439,21 +529,28 @@ class Mixer {
     for (auto pid : candidates)
       for (auto root : candidates)
         if (pid != root && descendant(pid, root, list)) wanted.erase(pid);
-    for (auto it = captures.begin(); it != captures.end();)
-      if (!wanted.count(it->first))
-        it = captures.erase(it);
-      else if (!it->second->active()) {
-        retry(it->first, it->second->identity(), it->second->status());
-        it = captures.erase(it);
-      } else
-        ++it;
+    std::vector<std::shared_ptr<Capture>> retired;
+    {
+      std::lock_guard<std::mutex> lock(captureMutex);
+      for (auto it = captures.begin(); it != captures.end();) {
+        if (!wanted.count(it->first) || !it->second->active()) {
+          retired.push_back(it->second);
+          it = captures.erase(it);
+        } else ++it;
+      }
+    }
+    for (auto& capture : retired)
+      if (!capture->active()) retry(capture->processId(), capture->identity(), capture->status());
+    retired.clear(); // WASAPI shutdown does not hold the packet mixer lock.
     for (auto it = failed.begin(); it != failed.end();)
       if (!wanted.count(it->first))
         it = failed.erase(it);
       else
         ++it;
-    for (auto pid : wanted)
-      if (!captures.count(pid)) {
+    for (auto pid : wanted) {
+      bool present = false;
+      { std::lock_guard<std::mutex> lock(captureMutex); present = captures.count(pid) != 0; }
+      if (!present && managing) {
         auto item = find(pid, list);
         const auto created = item ? item->created : 0;
         if (!failed[pid].ready(created, GetTickCount64())) continue;
@@ -464,31 +561,38 @@ class Mixer {
                 {"message", "Audio blocked: process origin is uncertain or excluded"}});
           continue;
         }
-        auto capture = std::make_unique<Capture>(pid, item->created);
+        auto capture = std::make_shared<Capture>(pid, item->created);
         auto hr = capture->start();
         if (FAILED(hr))
           retry(pid, item->created, hr);
         else {
           failed.erase(pid);
+          std::lock_guard<std::mutex> lock(captureMutex);
           captures[pid] = std::move(capture);
         }
       }
+    }
+  }
+  Json metrics() {
+    Json out = Json::array();
+    for (auto& capture : current()) out.push_back(capture->metrics());
+    return out;
   }
   std::vector<int16_t> packet() {
-    auto now = GetTickCount64();
-    if (now - lastScan >= 500) {
-      lastScan = now;
-      refresh();
+    if (windowHandle) {
+      DWORD owner = 0;
+      GetWindowThreadProcessId(windowHandle, &owner);
+      if (owner != windowPid) return std::vector<int16_t>(960);
     }
     std::vector<int32_t> mixed(960);
-    for (auto& [pid, capture] : captures) capture->mix(mixed);
+    for (auto& capture : current()) capture->mix(mixed);
     std::vector<int16_t> out(960);
     for (size_t i = 0; i < out.size(); ++i) out[i] = (int16_t)std::clamp(mixed[i], -32768, 32767);
     return out;
   }
-  size_t active() const {
-    return std::count_if(captures.begin(), captures.end(),
-                         [](const auto& item) { return item.second->active(); });
+  size_t active() {
+    auto list = current();
+    return std::count_if(list.begin(), list.end(), [](const auto& capture) { return capture->active(); });
   }
 };
 }  // namespace process_audio

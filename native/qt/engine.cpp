@@ -89,6 +89,10 @@ void EngineProcess::shutdown() {
 }
 void EngineProcess::fail(const QString& reason) {
   ready_ = false;
+  auto queued = std::move(deferred);
+  deferred.clear();
+  for (auto& task : queued)
+    if (task.callback) task.callback({}, reason);
   auto all = std::move(pending);
   pending.clear();
   for (auto p : all)
@@ -96,6 +100,23 @@ void EngineProcess::fail(const QString& reason) {
   if (!closing) emit error(reason);
 }
 void EngineProcess::request(const QString& method, const QJsonObject& data, Callback callback) {
+  if (!ready_ && Protocol::mediaRequest(method, data) && (method == "stop" || method == "remove")) {
+    for (auto it = deferred.begin(); it != deferred.end();) {
+      if (method == "stop" || it->data["peer"] == data["peer"]) {
+        auto task = *it;
+        it = deferred.erase(it);
+        if (task.callback) task.callback({}, "Pedido cancelado");
+      } else
+        ++it;
+    }
+    if (callback) callback(QJsonValue::Null, {});
+    return;
+  }
+  if (!ready_ && !closing && process.state() != QProcess::NotRunning && method == "signal" &&
+      deferred.size() < 128 && Protocol::mediaRequest(method, data)) {
+    deferred.append({method, data, callback});
+    return;
+  }
   if (!ready_ || pending.size() >= 128 || !Protocol::mediaRequest(method, data)) {
     const QString e = !ready_ ? "Motor indisponível" : "Pedido IPC inválido ou fila cheia";
     if (callback) callback({}, e);
@@ -162,6 +183,9 @@ void EngineProcess::read() {
       }
       if (v["event"] == "ready") {
         ready_ = true;
+        auto queued = std::move(deferred);
+        deferred.clear();
+        for (auto& task : queued) request(task.method, task.data, task.callback);
         emit ready();
       } else
         emit eventReceived(v);

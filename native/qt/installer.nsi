@@ -1,7 +1,9 @@
 Unicode true
 !include "MUI2.nsh"
+!define MUI_ICON "assets\golive-icon.ico"
+!define MUI_UNICON "assets\golive-icon.ico"
 Name "GoLive P2P"
-OutFile "..\..\release\GoLive-P2P-Setup-0.6.0-qt.1.exe"
+OutFile "..\..\release\GoLive-P2P-Setup-0.6.0-qt.3.exe"
 InstallDir "$LOCALAPPDATA\Programs\golive-p2p-qt"
 InstallDirRegKey HKCU "Software\GoLiveP2P\Qt" "InstallDir"
 RequestExecutionLevel user
@@ -21,7 +23,7 @@ Section "GoLive P2P"
   WriteUninstaller "$INSTDIR\Uninstall.exe"
   WriteRegStr HKCU "Software\GoLiveP2P\Qt" "InstallDir" "$INSTDIR"
   WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\GoLiveP2PQt" "DisplayName" "GoLive P2P (Qt)"
-  WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\GoLiveP2PQt" "DisplayVersion" "0.6.0-qt.1"
+  WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\GoLiveP2PQt" "DisplayVersion" "0.6.0-qt.3"
   WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\GoLiveP2PQt" "UninstallString" '"$INSTDIR\Uninstall.exe"'
   CreateShortcut "$DESKTOP\GoLive P2P.lnk" "$INSTDIR\GoLive P2P.exe"
   CreateDirectory "$SMPROGRAMS\GoLive P2P"

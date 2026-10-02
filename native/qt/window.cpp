@@ -2,6 +2,8 @@
 #include "protocol.hpp"
 #include "updater.hpp"
 #include "thumbnails.hpp"
+#include "player.hpp"
+#include "icons.hpp"
 #include <QApplication>
 #include <QBoxLayout>
 #include <QFormLayout>
@@ -23,6 +25,8 @@
 #include <QStandardPaths>
 #include <QRegularExpression>
 #include <QDir>
+#include <QMenu>
+#include <QCloseEvent>
 #ifdef Q_OS_WIN
 #include <windows.h>
 #include <dwmapi.h>
@@ -66,69 +70,59 @@ QPushButton* button(const QString& title, const QString& object, QWidget* parent
   return b;
 }
 }  // namespace
-VideoView::VideoView(QWidget* parent) : QWidget(parent) {
-  setMinimumSize(320, 180);
-  setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
-  setObjectName("video");
-}
-void VideoView::frame(const QByteArray& bytes) {
-  auto next = QImage::fromData(bytes, "JPEG");
-  if (next.isNull()) return;
-  image = std::move(next);
-  ++frames;
-  update();
-}
-void VideoView::clear() {
-  image = {};
-  update();
-}
-void VideoView::paintEvent(QPaintEvent*) {
-  QPainter p(this);
-  p.fillRect(rect(), QColor("#080e1b"));
-  if (image.isNull()) {
-    p.setPen(QColor("#8b9bb4"));
-    p.drawText(rect(), Qt::AlignCenter,
-               "Escolha uma janela ou monitor para compartilhar\nou aguarde a transmissão de um "
-               "participante.");
-    return;
-  }
-  auto size = image.size().scaled(this->size(), Qt::KeepAspectRatio);
-  QRect target(QPoint((width() - size.width()) / 2, (height() - size.height()) / 2), size);
-  p.setRenderHint(QPainter::SmoothPixmapTransform);
-  p.drawImage(target, image);
-}
-void VideoView::mouseDoubleClickEvent(QMouseEvent* e) {
-  if (e->button() == Qt::LeftButton) emit doubleClicked();
-}
 MainWindow::MainWindow(const QString& runtime, QWidget* parent)
     : QMainWindow(parent), engine(runtime, this), server(this), client(this), network(this) {
   setWindowTitle("GoLive P2P · " + QString(GOLIVE_VERSION) + " · Qt");
-  resize(1180, 760);
-  setMinimumSize(760, 520);
+  resize(1180, 720);
+  setMinimumSize(680, 420);
   QSettings prefs;
   setStyleSheet(
-      "QWidget{background:#111a2b;color:#e8eef9;font-family:'Segoe UI';font-size:13px} "
-      "QLabel#title{font-size:25px;font-weight:600} "
-      "QLineEdit,QComboBox,QDoubleSpinBox{background:#1b2940;border:1px solid "
-      "#35465f;border-radius:6px;padding:8px} QPushButton{background:#253850;border:1px solid "
-      "#405577;border-radius:6px;padding:9px 14px} QPushButton:hover{background:#304b6b} "
-      "QPushButton:disabled{color:#75839a;background:#182437} "
-      "QPushButton#share,QPushButton#create{background:#2265cf;border-color:#4384ea} "
-      "QGroupBox{border:1px solid #2e415e;border-radius:8px;margin-top:12px;padding-top:12px} "
+      "QWidget{background:#1e1f22;color:#dbdee1;font-family:'Segoe UI';font-size:13px} "
+      "QLabel#title{font-size:16px;font-weight:600} QWidget#roomHeader{background:#232428} "
+      "QLineEdit,QComboBox,QDoubleSpinBox{background:#313338;border:1px solid "
+      "#404249;border-radius:6px;padding:7px} QPushButton{background:#383a40;border:0;"
+      "border-radius:6px;padding:8px 12px} QPushButton:hover{background:#4e5058} "
+      "QPushButton:disabled{color:#80848e;background:#2b2d31} "
+      "QPushButton#create{background:#5865f2} QWidget#player{background:#000} "
+      "QGroupBox{border:1px solid #404249;border-radius:8px;margin-top:12px;padding-top:12px} "
       "QGroupBox::title{subcontrol-origin:margin;left:12px} "
-      "QListWidget,QPlainTextEdit{background:#0d1626;border:1px solid #2e415e;border-radius:6px} "
-      "QCheckBox{spacing:8px} QSplitter::handle{background:#20304a}");
+      "QListWidget,QPlainTextEdit{background:#2b2d31;border:0;border-radius:6px} "
+      "QListWidget::item{padding:10px 8px;border-radius:5px} "
+      "QListWidget::item:selected{background:#404249} "
+      "QMenu{background:#111214;border:1px solid #35363c;padding:5px} QMenu::item{padding:7px "
+      "14px} "
+      "QMenu::item:selected{background:#5865f2;border-radius:4px} "
+      "QCheckBox{spacing:8px} QSplitter::handle{background:#35363c}");
   auto central = new QWidget(this);
   setCentralWidget(central);
   auto base = new QVBoxLayout(central);
+  base->setContentsMargins(0, 0, 0, 0);
+  base->setSpacing(0);
+  roomHeader = new QWidget;
+  roomHeader->setObjectName("roomHeader");
   auto top = new QHBoxLayout;
-  auto title = new QLabel("◉  GoLive P2P");
+  top->setContentsMargins(16, 9, 14, 9);
+  auto brand = new QLabel;
+  brand->setPixmap(QIcon(":/golive-icon.png").pixmap(25, 25));
+  top->addWidget(brand);
+  auto title = new QLabel("GoLive P2P");
   title->setObjectName("title");
   top->addWidget(title);
   top->addStretch();
   connection = new QLabel("Conferindo Tailscale…");
   top->addWidget(connection);
-  base->addLayout(top);
+  auto bug = button("", "bug", roomHeader);
+  bug->setIcon(actionIcon("bug"));
+  bug->setIconSize(QSize(19, 19));
+  bug->setFixedSize(30, 30);
+  bug->setStyleSheet(
+      "QPushButton{padding:0;background:transparent} "
+      "QPushButton::menu-indicator{image:none;width:0}");
+  bug->setToolTip("Reportar um bug / diagnóstico");
+  bug->setAccessibleName(bug->toolTip());
+  top->addWidget(bug);
+  roomHeader->setLayout(top);
+  base->addWidget(roomHeader);
   lobby = new QWidget;
   auto lobbyLayout = new QVBoxLayout(lobby);
   lobbyLayout->addStretch();
@@ -176,25 +170,34 @@ MainWindow::MainWindow(const QString& runtime, QWidget* parent)
   side = new QWidget;
   auto sidebar = new QVBoxLayout(side);
   people = new QListWidget;
-  people->setMinimumWidth(195);
-  sidebar->addWidget(new QLabel("Participantes"));
+  people->setMinimumWidth(165);
+  people->setIconSize(QSize(32, 32));
+  sidebar->addWidget(new QLabel("AMIGOS NA SALA"));
   sidebar->addWidget(people, 1);
-  leave = button("Sair da sala", "leave", side);
-  sidebar->addWidget(leave);
+  auto note = new QLabel("P2P · até 5 participantes");
+  note->setStyleSheet("color:#949ba4;font-size:11px;padding:8px");
+  sidebar->addWidget(note);
   splitter->addWidget(side);
   auto main = new QWidget;
   auto content = new QVBoxLayout(main);
-  streamInfo = new QLabel("Pronto para compartilhar");
+  content->setContentsMargins(0, 0, 0, 0);
+  player = new PlayerSurface;
+  player->attach(content);
+  video = player->view();
+  streamInfo = player->titleLabel();
   streamInfo->setWordWrap(true);
-  content->addWidget(streamInfo);
-  video = new VideoView;
-  content->addWidget(video, 1);
+  streamInfo->setText("Pronto para compartilhar");
   audioInfo = new QLabel("Áudio: desativado");
   statsInfo = new QLabel("Estatísticas aparecerão durante a transmissão");
   statsInfo->setWordWrap(true);
-  content->addWidget(audioInfo);
-  content->addWidget(statsInfo);
+  audioInfo->hide();
+  statsInfo->hide();
+  options = new QDialog(this);
+  options->setWindowTitle("Opções da transmissão");
+  options->resize(440, 330);
+  auto optionsLayout = new QVBoxLayout(options);
   controls = new QWidget;
+  optionsLayout->addWidget(controls);
   auto capture = new QGridLayout(controls);
   quality = new QComboBox;
   quality->addItems(
@@ -229,42 +232,41 @@ MainWindow::MainWindow(const QString& runtime, QWidget* parent)
   method->hide();
   connect(advanced, &QPushButton::clicked, this,
           [this] { method->setVisible(!method->isVisible()); });
-  share = button("Escolher janela ou monitor", "share", controls);
-  stop = button("Parar transmissão", "stop", controls);
+  share = player->action("share");
+  stop = player->action("stop");
+  leave = player->action("hangup");
   stop->hide();
-  capture->addWidget(share, 3, 0, 1, 2);
-  capture->addWidget(stop, 4, 0, 1, 2);
-  content->addWidget(controls);
+  auto optionsHint =
+      new QLabel("Aplique sem sair da transmissão. A fonte pode levar um instante para trocar.");
+  optionsHint->setWordWrap(true);
+  optionsLayout->addWidget(optionsHint);
+  auto optionsDone = new QDialogButtonBox(QDialogButtonBox::Close);
+  optionsLayout->addWidget(optionsDone);
+  connect(optionsDone, &QDialogButtonBox::rejected, options, &QDialog::hide);
+  connect(player, &PlayerSurface::settingsRequested, this, &MainWindow::showOptions);
   splitter->addWidget(main);
   splitter->setStretchFactor(1, 1);
-  splitter->setSizes({225, 900});
+  splitter->setSizes({210, 940});
   room->hide();
   base->addWidget(room, 1);
-  auto logActions = new QHBoxLayout;
-  auto save = button("Salvar log", "saveLog", central);
-  auto send = button("Enviar log a participante", "sendLog", central);
-  auto show = button("Diagnóstico", "showLog", central);
-  logActions->addWidget(save);
-  logActions->addWidget(send);
-  logActions->addStretch();
-  logActions->addWidget(show);
-  base->addLayout(logActions);
+  auto diagnostics = new QMenu(bug);
+  diagnostics->addAction("Diagnóstico e estatísticas", this, &MainWindow::showDiagnostics);
+  diagnostics->addSeparator();
+  diagnostics->addAction("Salvar log…", this, &MainWindow::saveLog);
+  diagnostics->addAction("Enviar log ao amigo selecionado", this, &MainWindow::sendLog);
+  bug->setMenu(diagnostics);
   logs = new QPlainTextEdit;
+  logs->setParent(this);
   logs->setReadOnly(true);
   logs->setMaximumBlockCount(1500);
   logs->setMaximumHeight(150);
   logs->hide();
-  base->addWidget(logs);
-  connect(save, &QPushButton::clicked, this, &MainWindow::saveLog);
-  connect(send, &QPushButton::clicked, this, &MainWindow::sendLog);
-  connect(show, &QPushButton::clicked, this, [this] { logs->setVisible(!logs->isVisible()); });
   connect(create, &QPushButton::clicked, this, &MainWindow::createRoom);
   connect(join, &QPushButton::clicked, this, [this] { joinRoom(host->text()); });
   connect(discover, &QPushButton::clicked, this, &MainWindow::discoverRooms);
   connect(leave, &QPushButton::clicked, this, &MainWindow::leaveRoom);
   connect(share, &QPushButton::clicked, this, &MainWindow::selectSource);
   connect(stop, &QPushButton::clicked, this, &MainWindow::stopStream);
-  connect(video, &VideoView::doubleClicked, this, &MainWindow::toggleFullscreen);
   connect(&server, &RoomServer::log, this, &MainWindow::log);
   connect(&client, &RoomClient::messageReceived, this, &MainWindow::message);
   connect(&client, &RoomClient::status, this, [this](const QString& s) {
@@ -304,9 +306,14 @@ MainWindow::MainWindow(const QString& runtime, QWidget* parent)
     if (transmitting) {
       auto source = selectedSource;
       auto apps = settings["allowedAudioApps"].toArray();
-      stopStream();
       startSource(source, apps);
     }
+  });
+  connect(audio, &QCheckBox::toggled, this, [this] {
+    if (transmitting) startSource(selectedSource, settings["allowedAudioApps"].toArray());
+  });
+  connect(method, qOverload<int>(&QComboBox::currentIndexChanged), this, [this] {
+    if (transmitting) startSource(selectedSource, settings["allowedAudioApps"].toArray());
   });
   auto tsTimer = new QTimer(this);
   tsTimer->setInterval(10000);
@@ -338,7 +345,7 @@ MainWindow::MainWindow(const QString& runtime, QWidget* parent)
 #ifndef Q_OS_WIN
   create->hide();
   share->hide();
-  controls->hide();
+  player->action("settings")->hide();
 #endif
   refreshTailnet();
   engine.start();
@@ -347,12 +354,19 @@ MainWindow::MainWindow(const QString& runtime, QWidget* parent)
 MainWindow::~MainWindow() {
   closed = true;
   report();
+  player->present(PlayerSurface::Docked);
   client.leave();
   server.close();
   engine.shutdown();
 }
 void MainWindow::log(const QString& text) {
   logs->appendPlainText(QDateTime::currentDateTime().toString(Qt::ISODate) + " " + text.left(8192));
+}
+void MainWindow::closeEvent(QCloseEvent* event) {
+  player->present(PlayerSurface::Docked);
+  options->hide();
+  if (diagnosticsWindow) diagnosticsWindow->hide();
+  QMainWindow::closeEvent(event);
 }
 void MainWindow::refreshTailnet() {
   command(this, {"status", "--json"}, [this](QByteArray raw) {
@@ -412,7 +426,7 @@ void MainWindow::leaveRoom() {
   room->hide();
   lobby->show();
   refreshTailnet();
-  if (fullscreen) toggleFullscreen();
+  player->present(PlayerSurface::Docked);
 }
 void MainWindow::refreshPeople() {
   people->clear();
@@ -425,8 +439,22 @@ void MainWindow::refreshPeople() {
                             people);
     item->setData(Qt::UserRole, it.key());
     item->setToolTip(p["ip"].toString());
+    QPixmap avatar(32, 32);
+    avatar.fill(Qt::transparent);
+    QPainter painter(&avatar);
+    painter.setRenderHint(QPainter::Antialiasing);
+    painter.setPen(Qt::NoPen);
+    painter.setBrush(it.key() == streamer ? QColor("#23a55a") : QColor("#5865f2"));
+    painter.drawEllipse(avatar.rect());
+    painter.setPen(Qt::white);
+    painter.drawText(avatar.rect(), Qt::AlignCenter, p["name"].toString().left(1).toUpper());
+    item->setIcon(QIcon(avatar));
   }
-  if (!transmitting) share->setEnabled(streamer.isEmpty() && engine.isReady());
+  share->setEnabled(!starting && engine.isReady() && (streamer.isEmpty() || transmitting));
+  quality->setEnabled(!starting);
+  method->setEnabled(!starting);
+  audio->setEnabled(!starting);
+  player->action("settings")->setEnabled(transmitting || streamer.isEmpty());
 }
 void MainWindow::message(const QJsonObject& v) {
   auto t = v["type"].toString(), from = v["from"].toString();
@@ -578,45 +606,55 @@ void MainWindow::startSource(const QString& source, const QJsonArray& allowed) {
   log("Linux é cliente de recepção nesta etapa");
   return;
 #endif
-  if (starting || transmitting || client.selfId().isEmpty() ||
-      (!streamer.isEmpty() && streamer != client.selfId()))
+  if (starting || client.selfId().isEmpty() || (!streamer.isEmpty() && streamer != client.selfId()))
     return;
   if (!engine.isReady()) {
     engine.start();
     log("Aguarde o motor iniciar");
     return;
   }
-  settings = captureSettings(source, allowed);
-  if (!Protocol::mediaRequest("start", settings)) {
+  const auto proposed = captureSettings(source, allowed);
+  const bool changing = transmitting;
+  const auto requestMethod = changing ? "reconfigure" : "start";
+  if (!Protocol::mediaRequest(requestMethod, proposed)) {
     log("Método incompatível com a fonte escolhida");
     return;
   }
   starting = true;
-  share->setEnabled(false);
-  engine.request("start", settings, [this, source](QJsonValue result, QString error) {
-    starting = false;
-    if (!error.isEmpty()) {
-      refreshPeople();
-      return;
-    }
-    selectedSource = source;
-    encoder = result.toObject()["encoder"].toString();
-    transmitting = true;
-    streamer = client.selfId();
-    client.send({{"type", "start-stream"}});
-    streamInfo->setText(
-        "Sua transmissão · " +
-        (encoder.contains("nv", Qt::CaseInsensitive) ? QString("GPU · ") : QString("CPU · ")) +
-        encoder + " · " + result.toObject()["method"].toString());
-    share->hide();
-    stop->show();
-    refreshPeople();
-    for (auto id : peers.keys())
-      if (id != client.selfId()) offer(id);
-  });
+  refreshPeople();
+  engine.request(
+      requestMethod, proposed,
+      [this, source, proposed, changing](QJsonValue result, QString error) {
+        starting = false;
+        if (!error.isEmpty()) {
+          log("Não foi possível aplicar a captura: " + error);
+          refreshPeople();
+          return;
+        }
+        selectedSource = source;
+        settings = proposed;
+        encoder = result.toObject()["encoder"].toString();
+        transmitting = true;
+        streamer = client.selfId();
+        if (!changing) client.send({{"type", "start-stream"}});
+        streamInfo->setText(
+            "Sua transmissão · " +
+            (encoder.contains("nv", Qt::CaseInsensitive) ? QString("GPU · ") : QString("CPU · ")) +
+            encoder + " · " + result.toObject()["method"].toString());
+        share->show();
+        stop->show();
+        refreshPeople();
+        if (changing) {
+          ++liveChanges;
+          log("Captura atualizada · conexão P2P preservada");
+        } else
+          for (auto id : peers.keys())
+            if (id != client.selfId()) offer(id);
+      });
 }
 void MainWindow::offer(const QString& id) {
   if (!transmitting) return;
+  ++offersSent;
   mediaPeers.insert(id);
   engine.request("offer", {{"peer", id}});
 }
@@ -885,14 +923,38 @@ void MainWindow::sendLog() {
                {"to", item->data(Qt::UserRole).toString()},
                {"text", logs->toPlainText().right(120000)}});
 }
-void MainWindow::toggleFullscreen() {
-  fullscreen = !fullscreen;
-  side->setVisible(!fullscreen);
-  controls->setVisible(!fullscreen);
-  if (fullscreen)
-    showFullScreen();
-  else
-    showNormal();
+void MainWindow::toggleFullscreen() { player->toggleFullscreen(); }
+void MainWindow::showOptions() {
+  options->show();
+  options->raise();
+  options->activateWindow();
+}
+void MainWindow::showDiagnostics() {
+  if (!diagnosticsWindow) {
+    diagnosticsWindow = new QDialog(this);
+    diagnosticsWindow->setWindowTitle("Reportar bug · diagnóstico");
+    diagnosticsWindow->resize(760, 460);
+    auto layout = new QVBoxLayout(diagnosticsWindow);
+    layout->addWidget(audioInfo);
+    layout->addWidget(statsInfo);
+    layout->addWidget(logs, 1);
+    audioInfo->show();
+    statsInfo->show();
+    logs->setMaximumHeight(QWIDGETSIZE_MAX);
+    logs->show();
+    auto actions = new QHBoxLayout;
+    auto save = button("Salvar log…", "saveLog", diagnosticsWindow);
+    auto send = button("Enviar ao amigo selecionado", "sendLog", diagnosticsWindow);
+    connect(save, &QPushButton::clicked, this, &MainWindow::saveLog);
+    connect(send, &QPushButton::clicked, this, &MainWindow::sendLog);
+    actions->addWidget(save);
+    actions->addWidget(send);
+    actions->addStretch();
+    layout->addLayout(actions);
+  }
+  diagnosticsWindow->show();
+  diagnosticsWindow->raise();
+  diagnosticsWindow->activateWindow();
 }
 void MainWindow::report() {
   if (testReport.isEmpty()) return;
@@ -933,16 +995,17 @@ void MainWindow::automate(const QStringList& args) {
                         QPointF(video->mapToGlobal(video->rect().center())), Qt::LeftButton,
                         Qt::LeftButton, Qt::NoModifier);
       QApplication::sendEvent(video, &event);
-      const bool entered = isFullScreen();
+      const bool entered = player->isFullScreen();
       QTimer::singleShot(600, this, [this, entered] {
         if (!testReport.isEmpty())
-          QGuiApplication::primaryScreen()->grabWindow(winId()).save(testReport +
-                                                                     ".fullscreen.png");
+          QGuiApplication::primaryScreen()
+              ->grabWindow(player->winId())
+              .save(testReport + ".fullscreen.png");
         QMouseEvent second(QEvent::MouseButtonDblClick, QPointF(video->rect().center()),
                            QPointF(video->mapToGlobal(video->rect().center())), Qt::LeftButton,
                            Qt::LeftButton, Qt::NoModifier);
         QApplication::sendEvent(video, &second);
-        fullscreenTestPassed = entered && !isFullScreen();
+        fullscreenTestPassed = entered && player->presentation() == PlayerSurface::Docked;
         log(fullscreenTestPassed ? "Teste de duplo clique/tela cheia passou"
                                  : "Teste de tela cheia falhou");
       });

@@ -3,7 +3,7 @@ on:
   workflow_dispatch:
   push:
     branches: [native/windows-media-engine]
-    paths: ['native/qt/**', 'native/windows/media-engine.cpp', '.github/workflows/qt-linux-client.yml']
+    paths: ['native/qt/**', 'native/windows/media-engine.cpp', 'native/windows/*-buffer*', 'native/windows/audio-*', 'native/windows/opus-*', '.github/workflows/qt-linux-client.yml']
 permissions:
   contents: read
 jobs:
@@ -43,10 +43,67 @@ jobs:
         with:
           name: qt-linux-client
           path: |
-            release/GoLive-P2P-0.6.0-qt.1-linux-x64.tar.gz
-            release/SHA256SUMS-linux-0.6.0-qt.1.txt
+            release/GoLive-P2P-0.6.0-qt.3-linux-x64.tar.gz
+            release/SHA256SUMS-linux-0.6.0-qt.3.txt
+            work/qt-linux/player-tests.txt
+            work/qt-linux/Testing/Temporary/LastTest.log
             work/qt-linux/qt-tests.txt
             work/qt-linux/ui-smoke.json
             work/qt-linux/engine-smoke.txt
             work/qt-linux/packaged-smoke.json
+          if-no-files-found: error
+  rpm:
+    needs: linux
+    runs-on: ubuntu-24.04
+    container: fedora:44
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install RPM verification tools
+        run: dnf install -y rpm-build curl tar gzip python3 desktop-file-utils xorg-x11-server-Xvfb xorg-x11-xauth mesa-libGL mesa-libEGL alsa-lib rpmlint
+      - uses: actions/download-artifact@v4
+        with:
+          name: qt-linux-client
+          path: work/qt-client
+      - name: Verify the newly built client
+        run: |
+          cd work/qt-client
+          sha256sum --check --strict release/SHA256SUMS-linux-0.6.0-qt.3.txt
+      - name: Build Fedora RPM
+        run: bash native/qt/linux/build-rpm.sh work/qt-client/release/GoLive-P2P-0.6.0-qt.3-linux-x64.tar.gz
+      - name: Install and verify the actual RPM
+        run: |
+          set -e
+          dnf install -y ./release/GoLive-P2P-0.6.0-qt.3-fedora-x86_64.rpm
+          rpm -qi golive-p2p > work/rpm-info.txt
+          rpm -ql golive-p2p > work/rpm-files.txt
+          rpm -V golive-p2p > work/rpm-verify.txt
+          test ! -s work/rpm-verify.txt
+          test -x /usr/bin/golive-p2p
+          desktop-file-validate /usr/share/applications/golive-p2p.desktop
+          # Record lint including expected third-party/private bundled-runtime
+          # warnings; this package is not submitted to the Fedora repositories.
+          rpmlint release/*.rpm > work/rpmlint.txt 2>&1 || true
+          Xvfb :99 -screen 0 1280x800x24 > work/xvfb.log 2>&1 &
+          sleep 2
+          env -u LD_LIBRARY_PATH DISPLAY=:99 golive-p2p --duration=4 --report=work/rpm-smoke.json
+          python3 - <<'PY'
+          import json
+          v=json.load(open('work/rpm-smoke.json'))
+          assert v['ui']=='Qt Widgets' and 'Motor C++ pronto' in v['logs'],v
+          print('Installed Fedora RPM started Qt UI and native engine successfully')
+          PY
+          # Verify removal leaves no application executable or menu entry.
+          dnf remove -y golive-p2p
+          test ! -e /opt/golive-p2p
+          test ! -e /usr/bin/golive-p2p
+          test ! -e /usr/share/applications/golive-p2p.desktop
+      - uses: actions/upload-artifact@v4
+        with:
+          name: qt-fedora-rpm
+          path: |
+            release/*.rpm
+            release/SHA256SUMS-rpm-0.6.0-qt.3.txt
+            work/rpm-*.txt
+            work/rpm-smoke.json
+            work/rpmlint.txt
           if-no-files-found: error

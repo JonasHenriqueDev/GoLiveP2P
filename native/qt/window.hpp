@@ -1,6 +1,7 @@
 #pragma once
 #include "engine.hpp"
 #include "room.hpp"
+#include "video.hpp"
 #include <QMainWindow>
 #include <QImage>
 #include <QListWidget>
@@ -15,29 +16,16 @@
 #include <QJsonArray>
 #include <QSplitter>
 class Updater;
-class VideoView : public QWidget {
-  Q_OBJECT
- public:
-  explicit VideoView(QWidget* parent = nullptr);
-  void frame(const QByteArray& jpeg);
-  void clear();
-  quint64 frames = 0;
- signals:
-  void doubleClicked();
-
- protected:
-  void paintEvent(QPaintEvent*) override;
-  void mouseDoubleClickEvent(QMouseEvent*) override;
-
- private:
-  QImage image;
-};
+class PlayerSurface;
 class MainWindow : public QMainWindow {
   Q_OBJECT
  public:
   explicit MainWindow(const QString& runtime, QWidget* parent = nullptr);
   ~MainWindow() override;
   void automate(const QStringList& args);
+
+ protected:
+  void closeEvent(QCloseEvent*) override;
 
  private:
   EngineProcess engine;
@@ -54,6 +42,10 @@ class MainWindow : public QMainWindow {
   QListWidget* people;
   QPlainTextEdit* logs;
   VideoView* video;
+  PlayerSurface* player;
+  QWidget* roomHeader;
+  QDialog* options;
+  QDialog* diagnosticsWindow = nullptr;
   QWidget *lobby, *room, *side, *controls;
   QSplitter* splitter;
   QString tailIp, streamer, encoder, selectedSource, testReport, testSource;
@@ -68,12 +60,13 @@ class MainWindow : public QMainWindow {
     qint64 time = 0;
   };
   QMap<QString, Rate> rates;
-  bool transmitting = false, starting = false, fullscreen = false, closed = false,
-       statsBusy = false;
+  bool transmitting = false, starting = false, closed = false, statsBusy = false;
   quint64 previewFrames = 0;
   double lastAudioRms = 0;
   bool audioActive = false;
   bool fullscreenTestPassed = false;
+  bool pipTestPassed = false, liveChangeTestPassed = false;
+  int liveChanges = 0, offersSent = 0;
   void log(const QString&);
   void refreshTailnet();
   void createRoom();
@@ -93,6 +86,8 @@ class MainWindow : public QMainWindow {
   void saveLog();
   void sendLog();
   void toggleFullscreen();
+  void showOptions();
+  void showDiagnostics();
   void report();
   QJsonObject captureSettings(const QString&, const QJsonArray&);
 };

@@ -49,5 +49,5 @@ exec "$HERE/GoLive P2P" "$@"
 SH
 chmod +x "$stage/golive"
 printf '[Paths]\nPlugins=plugins\nLibraries=lib\n' > "$stage/qt.conf"
-tar -czf release/GoLive-P2P-0.6.0-qt.1-linux-x64.tar.gz -C release qt-linux
-sha256sum release/GoLive-P2P-0.6.0-qt.1-linux-x64.tar.gz > release/SHA256SUMS-linux-0.6.0-qt.1.txt
+tar -czf release/GoLive-P2P-0.6.0-qt.3-linux-x64.tar.gz -C release qt-linux
+sha256sum release/GoLive-P2P-0.6.0-qt.3-linux-x64.tar.gz > release/SHA256SUMS-linux-0.6.0-qt.3.txt

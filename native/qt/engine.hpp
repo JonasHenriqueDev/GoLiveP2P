@@ -29,6 +29,12 @@ class EngineProcess : public QObject {
   QString runtime_;
   QByteArray buffer;
   QMap<int, Pending> pending;
+  struct Deferred {
+    QString method;
+    QJsonObject data;
+    Callback callback;
+  };
+  QList<Deferred> deferred;
   int nextId = 0;
   bool ready_ = false, closing = false;
   void fail(const QString& reason);

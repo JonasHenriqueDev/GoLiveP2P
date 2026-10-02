@@ -1,4 +1,7 @@
 #include "protocol.hpp"
+#include "engine.hpp"
+#include <QTemporaryDir>
+#include <QFile>
 #include "room.hpp"
 #include <QtTest>
 #include <QNetworkAccessManager>
@@ -7,6 +10,68 @@
 class Tests : public QObject {
   Q_OBJECT
  private slots:
+  void earlySignalingSurvivesSlowMediaStartup() {
+    QTemporaryDir runtime;
+    QVERIFY(runtime.isValid());
+#ifdef Q_OS_WIN
+    const auto executable = QString(".exe");
+#else
+    const auto executable = QString();
+#endif
+    QVERIFY(QFile::copy(QCoreApplication::applicationDirPath() + "/engine-fixture" + executable,
+                        runtime.path() + "/media-engine" + executable));
+    EngineProcess engine(runtime.path());
+    QSignalSpy errors(&engine, &EngineProcess::error);
+    QSignalSpy ready(&engine, &EngineProcess::ready);
+    engine.start();
+    bool completed = false;
+    QString reason;
+    engine.request(
+        "signal",
+        {{"type", "offer"}, {"peer", "11111111-1111-4111-8111-111111111111"}, {"sdp", "v=0\r\n"}},
+        [&](QJsonValue, QString error) {
+          completed = true;
+          reason = error;
+        });
+    QTest::qWait(80);
+    QVERIFY(!completed);
+    QVERIFY(errors.isEmpty());
+    QTRY_VERIFY_WITH_TIMEOUT(completed, 5000);
+    QVERIFY2(reason.isEmpty(), qPrintable(reason));
+    QCOMPARE(ready.count(), 1);
+    QVERIFY(errors.isEmpty());
+    engine.shutdown();
+  }
+
+  void cancellationBeforeMediaReady() {
+    QTemporaryDir runtime;
+    QVERIFY(runtime.isValid());
+#ifdef Q_OS_WIN
+    const auto suffix = QString(".exe");
+#else
+    const auto suffix = QString();
+#endif
+    QVERIFY(QFile::copy(QCoreApplication::applicationDirPath() + "/engine-fixture" + suffix,
+                        runtime.path() + "/media-engine" + suffix));
+    EngineProcess engine(runtime.path());
+    QSignalSpy ready(&engine, &EngineProcess::ready);
+    engine.start();
+    const auto peer = QString("11111111-1111-4111-8111-111111111111");
+    int callbacks = 0;
+    QString reason;
+    engine.request("signal", {{"type", "offer"}, {"peer", peer}, {"sdp", "v=0\r\n"}},
+                   [&](QJsonValue, QString error) {
+                     ++callbacks;
+                     reason = error;
+                   });
+    engine.request("remove", {{"peer", peer}});
+    QCOMPARE(callbacks, 1);
+    QCOMPARE(reason, QString("Pedido cancelado"));
+    QTRY_COMPARE_WITH_TIMEOUT(ready.count(), 1, 5000);
+    QTest::qWait(80);
+    QCOMPARE(callbacks, 1);
+    engine.shutdown();
+  }
   void ips() {
     QVERIFY(Protocol::tailnetIp("100.75.12.74"));
     QVERIFY(!Protocol::tailnetIp("100.1.2.3"));

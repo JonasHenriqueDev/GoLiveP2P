@@ -10,6 +10,8 @@ Windows: execute o instalador EXE. As DLLs Qt, o runtime C++, os executáveis de
 
 O **Tailscale deve estar instalado, autenticado e conectado separadamente** em cada computador. GoLive não exige servidor central de mídia, IP público, abertura de portas no roteador, STUN ou TURN. ACLs/firewall precisam permitir TCP 47621 até o host e UDP entre os participantes.
 
+Fedora: também há [instalador RPM](https://github.com/JonasHenriqueDev/GoLiveP2P/releases/download/v0.6.0-qt.1/GoLive-P2P-0.6.0-qt.1-fedora-x86_64.rpm), com entrada no menu e bibliotecas incluídas. Na pasta do download, execute `sudo dnf install ./GoLive-P2P-0.6.0-qt.1-fedora-x86_64.rpm`; depois abra **GoLive P2P** no menu ou execute `golive-p2p`. [Instalação, remoção e validação do RPM](docs/linux-rpm.md).
+
 ## Uso
 
 1. Informe seu nome e crie uma sala no Windows. O host abre a sala no próprio IP Tailscale. Outros participantes entram pelo IP ou usam a descoberta de salas.

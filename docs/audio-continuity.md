@@ -1,4 +1,4 @@
-# Continuidade do áudio — 0.6.0-qt.3 em desenvolvimento
+# Continuidade do áudio — 0.6.0-qt.3 (experimental)
 
 O usuário relatou áudio picotando no Fedora, usando o cliente antigo porque o cliente Qt entrava na sala sem mostrar vídeo. A instalação Windows 0.6.0-qt.2, sozinha, não atualiza o jitter buffer do receptor Linux.
 
@@ -25,8 +25,17 @@ Windows 10 Pro 22H2, build 19045.6466, RTX 2060. Resultados de desenvolvimento; 
 - Teste de IPC com executável de mídia que demora para iniciar: oferta anterior ao evento `ready` permanece e é atendida após iniciar.
 - Integração anterior à otimização final recebeu vídeo, áudio e tela cheia, mas a telemetria mostrou underflows de captura. Esse resultado motivou mais correções; RMS positivo não foi aceito como prova de continuidade.
 
+## Integração final Windows
+
+- Execução de 90 segundos com a janela de teste Win32 coberta e redimensionada, 1080p60/NVENC, duas instâncias Qt e transmissão P2P pelo IP Tailscale desta máquina: **passou**.
+- 1.320 frames de prévia, 2.061 frames apresentados no receptor e 3.214.080 frames de áudio decodificados. Esses contadores são de apresentação/áudio, não uma medição de FPS de rede ou latência física.
+- Zero underflows de captura, zero amostras descartadas pela FIFO, zero intervalos de envio perdidos. Receptor: zero perdas/atrasos registrados na execução, zero gaps no Opus e zero buffers descartados pelo sink WASAPI. O teste executou enquanto o instalador era comprimido em segundo plano; não é benchmark geral de carga.
+- Windows: testes Qt (12 verificações), player, continuidade, políticas (9) e WASAPI (18), jitter RTP, Opus e análise MSVC executados. O pipeline recalcula a latência quando o GStreamer solicita, em vez de ignorar a mensagem.
+- A negociação sem áudio encontrou um timeout: o primer tinha apenas 10 ms para um encoder agora configurado em 20 ms. Ele foi ajustado para um frame completo de silêncio, sem capturar áudio de origem não autorizada. Repetição desse cenário e conferência final do instalador são registradas abaixo quando concluídas.
+- Linux Ubuntu 24.04 / GStreamer 1.24.2 no CI: cinco grupos CTest, incluindo o mesmo teste de perda Opus (6 pacotes perdidos, 96.000 frames recuperados, nenhum frame silencioso), e inicialização do pacote passaram. A instalação/remoção RPM foi testada em Fedora 44, sem equivaler à recepção ou audição no computador do usuário.
+
 ## Pendente
 
-Repetir integração final e instalação Windows, CI Linux/RPM e teste auditivo entre os computadores. A causa do vídeo ausente no Fedora não foi comprovada por log desse dispositivo; a corrida de inicialização foi reproduzida em teste de IPC e corrigida, e o decoder explícito é uma medida de compatibilidade. Não há promessa de áudio “perfeito” em redes/dispositivos arbitrários.
+Conferir a instalação Windows e os artefatos finais Linux/RPM; confirmar vídeo e áudio no Fedora do usuário. A causa do vídeo ausente no Fedora não foi comprovada por log desse dispositivo; a corrida de inicialização foi reproduzida em teste de IPC e corrigida, e o decoder explícito é uma medida de compatibilidade. Não há promessa de áudio “perfeito” em redes/dispositivos arbitrários.
 
 Referências: [IAudioClient::Initialize](https://learn.microsoft.com/en-us/windows/win32/api/audioclient/nf-audioclient-iaudioclient-initialize), [captura por processo](https://learn.microsoft.com/en-us/samples/microsoft/windows-classic-samples/applicationloopbackaudio-sample/), [Opus encoder](https://gstreamer.freedesktop.org/documentation/opus/opusenc.html), [Opus decoder](https://gstreamer.freedesktop.org/documentation/opus/opusdec.html).

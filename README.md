@@ -1,16 +1,16 @@
 # GoLive P2P
 
-Compartilhamento de janela ou monitor com até cinco participantes pela mesma tailnet Tailscale. A versão `0.6.0-qt.1` usa **somente Qt Widgets + C++ na interface**, com captura, áudio e WebRTC no motor nativo C++. Electron, React e TypeScript foram retirados do aplicativo e do build de produção. As versões anteriores permanecem no histórico do Git.
+Compartilhamento de janela ou monitor com até cinco participantes pela mesma tailnet Tailscale. A versão `0.6.0-qt.3` usa **somente Qt Widgets + C++ na interface**, com captura, áudio e WebRTC no motor nativo C++. Electron, React e TypeScript foram retirados do aplicativo e do build de produção. As versões anteriores permanecem no histórico do Git.
 
 ## Downloads e instalação
 
-A versão Qt está disponível como **pré-release experimental**, com instalador Windows completo, cliente Linux de recepção e checksums SHA-256 na [release v0.6.0-qt.1](https://github.com/JonasHenriqueDev/GoLiveP2P/releases/tag/v0.6.0-qt.1). Não anuncia conclusão de todos os critérios de mídia. Consulte [resultados reais e limites](docs/qt-validation.md).
+A versão Qt está disponível como **pré-release experimental**, com instalador Windows completo, cliente Linux de recepção e checksums SHA-256 na [release v0.6.0-qt.3](https://github.com/JonasHenriqueDev/GoLiveP2P/releases/tag/v0.6.0-qt.3). Não anuncia conclusão de todos os critérios de mídia. Consulte [resultados reais e limites](docs/qt-validation.md).
 
 Windows: execute o instalador EXE. As DLLs Qt, o runtime C++, os executáveis de captura e as bibliotecas de mídia são incluídos. Não é necessário instalar Qt, Visual Studio, Node ou GStreamer para usar. A primeira troca da versão Electron para Qt exige instalar esse EXE; o pacote Qt instala em diretório separado. Feche o GoLive anterior para liberar a porta da sala. Linux: extraia o pacote `linux-x64.tar.gz` e execute `golive`; essa etapa é exclusivamente cliente de recepção.
 
 O **Tailscale deve estar instalado, autenticado e conectado separadamente** em cada computador. GoLive não exige servidor central de mídia, IP público, abertura de portas no roteador, STUN ou TURN. ACLs/firewall precisam permitir TCP 47621 até o host e UDP entre os participantes.
 
-Fedora: também há [instalador RPM](https://github.com/JonasHenriqueDev/GoLiveP2P/releases/download/v0.6.0-qt.1/GoLive-P2P-0.6.0-qt.1-fedora-x86_64.rpm), com entrada no menu e bibliotecas incluídas. Na pasta do download, execute `sudo dnf install ./GoLive-P2P-0.6.0-qt.1-fedora-x86_64.rpm`; depois abra **GoLive P2P** no menu ou execute `golive-p2p`. [Instalação, remoção e validação do RPM](docs/linux-rpm.md).
+Fedora: também há [instalador RPM](https://github.com/JonasHenriqueDev/GoLiveP2P/releases/download/v0.6.0-qt.3/GoLive-P2P-0.6.0-qt.3-fedora-x86_64.rpm), com entrada no menu e bibliotecas incluídas. Na pasta do download, execute `sudo dnf install ./GoLive-P2P-0.6.0-qt.3-fedora-x86_64.rpm`; depois abra **GoLive P2P** no menu ou execute `golive-p2p`. [Instalação, remoção e validação do RPM](docs/linux-rpm.md).
 
 ## Uso
 
@@ -18,7 +18,7 @@ Fedora: também há [instalador RPM](https://github.com/JonasHenriqueDev/GoLiveP
 2. Selecione qualidade e bitrate, clique **Escolher janela ou monitor** e selecione a fonte. O seletor mostra prévias do compositor Windows quando disponíveis.
 3. Para janela, o áudio segue o aplicativo e seus subprocessos automaticamente. Para monitor, marque os aplicativos permitidos. Origens desconhecidas/excluídas bloqueiam apenas o áudio.
 4. A captura escolhe o método automaticamente. Opções avançadas permitem seleção explícita. Codificação usa NVENC quando disponível e fallback OpenH264 em CPU, identificado nas informações.
-5. Duplo clique no vídeo alterna tela cheia. O painel mostra estatísticas e ping; logs podem ser salvos ou enviados a outro participante por ação explícita.
+5. Duplo clique ou botão de tela cheia mostra somente o vídeo. Movimentar o mouse revela controles, que somem após inatividade. O botão PiP abre uma janela pequena sobre os outros aplicativos. Estatísticas e logs ficam no botão de bug; enviar um log exige ação explícita. Trocas de fonte e qualidade preservam a sala e os peers, com uma breve pausa na captura; sua validação em todos os aplicativos permanece pendente.
 
 Só uma pessoa transmite por vez. Vídeo e áudio usam conexões WebRTC independentes para cada espectador, com uma captura/codificação compartilhada. O WebSocket transmite apenas sinalização e mensagens de sala/logs. O limite é cinco participantes, incluindo o host.
 
@@ -52,4 +52,4 @@ npm run verify:package
 
 O executável de desenvolvimento fica em `release/qt-unpacked`; o instalador em `release/`. A estrutura do Qt está em `native/qt`; o motor Windows e os testes WASAPI estão em `native/windows`. O mesmo motor compila em Linux com captura desabilitada, para recepção nativa H264/Opus. No Linux, use `QT_ROOT` apontando para Qt 6.8 e `npm run build:linux`, com os pacotes de desenvolvimento GStreamer/WebRTC e CMake/Ninja instalados. O CI compila/testa o cliente Qt Linux e confere suas dependências.
 
-As licenças Qt e das bibliotecas de mídia são incluídas no pacote. A conferência de arquivos não substitui a auditoria completa das obrigações de distribuição. Resultados devem indicar cenários executados e pendências; nenhuma pré-release de teste equivale à validação completa da migração.
+As licenças Qt e das bibliotecas de mídia são incluídas no pacote. A conferência de arquivos não substitui a auditoria completa das obrigações de distribuição. Consulte as [correções e testes de continuidade do áudio](docs/audio-continuity.md). Resultados devem indicar cenários executados e pendências; nenhuma pré-release de teste equivale à validação completa da migração.

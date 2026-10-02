@@ -479,11 +479,11 @@ class Engine {
     peer->video = gst_bin_get_by_name(GST_BIN(peer->pipeline), "video");
     peer->audio = gst_bin_get_by_name(GST_BIN(peer->pipeline), "audio");
     if (peer->audio) {
-      auto buffer = gst_buffer_new_allocate(nullptr, 1920, nullptr);
-      gst_buffer_memset(buffer, 0, 0, 1920);
+      auto buffer = gst_buffer_new_allocate(nullptr, 3840, nullptr);
+      gst_buffer_memset(buffer, 0, 0, 3840);
       GST_BUFFER_PTS(buffer) = 0;
-      GST_BUFFER_DURATION(buffer) = 10 * GST_MSECOND;
-      peer->sentAudioFrames = 480;
+      GST_BUFFER_DURATION(buffer) = 20 * GST_MSECOND;
+      peer->sentAudioFrames = 960;
       gst_app_src_push_buffer(GST_APP_SRC(peer->audio), buffer);
     }
     if (sender && peer->video) {

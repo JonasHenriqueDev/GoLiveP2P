@@ -1,6 +1,9 @@
 name: Qt Linux receive-only client
 on:
   workflow_dispatch:
+  push:
+    branches: [native/windows-media-engine]
+    paths: ['native/qt/**', 'native/windows/media-engine.cpp', '.github/workflows/qt-linux-client.yml']
 permissions:
   contents: read
 jobs:

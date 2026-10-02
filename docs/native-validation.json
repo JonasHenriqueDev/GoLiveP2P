@@ -6,7 +6,7 @@
   "crossDevice": true,
   "audioExclusions": false,
   "latencyAndLoad": false,
-  "installerInspected": false,
+  "installerInspected": true,
   "licensesAudited": false,
   "congestionControl": false
 }

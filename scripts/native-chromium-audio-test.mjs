@@ -33,7 +33,11 @@ const work = join(
   'work/native-chromium-audio',
   new Date().toISOString().replace(/[:.]/g, '-'),
 );
-const runtime = join(root, 'native/windows/runtime');
+// Also exercise the exact DLLs and executable extracted from the installer.
+const runtimeArgument = process.argv.find((value) => value.startsWith('--runtime='));
+const runtime = runtimeArgument
+  ? resolve(runtimeArgument.slice('--runtime='.length))
+  : join(root, 'native/windows/runtime');
 const fixturePath = join(root, 'work/native-build/media-fixture.exe');
 mkdirSync(work, { recursive: true });
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -44,6 +48,7 @@ const report = {
       ? 'Win32 fixture with simultaneous unrelated Chrome tone'
       : 'Win32 fixture',
   receiverRef: reference || 'working tree',
+  runtime,
   errors: [],
   audioStates: [],
   states: [],

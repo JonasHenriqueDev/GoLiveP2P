@@ -25,6 +25,8 @@ O run final `37056693735`, código `79ddbcd4424605bcaeb3a0a46411084472ab43c7`, p
 
 Windows qt.4: lint, build/testes Qt, análise MSVC e conferência dos 868 arquivos do instalador extraído/instalado passaram. Um teste Qt Windows de áudio em paralelo ao teste Docker registrou 14 underflows de captura; esse cenário **não passou** como teste de continuidade. Não deve ser apresentado como áudio validado sob carga concorrente.
 
+Repetição isolada com o executável instalado (`2026-10-02T20-00-44-809Z`): passou, 539 frames de prévia, 486 apresentados, 692.160 frames de áudio, zero underflows, descartes de FIFO ou intervalos de envio perdidos. Esse resultado não invalida a falha sob carga concorrente nem substitui audição no Fedora físico.
+
 O log compartilhado pelo botão de bug também inclui as últimas estatísticas completas. O diagnóstico periódico informa transporte, quadros decodificados e contadores SRTP, sem registrar chaves de mídia. A interface aguarda um quadro apresentado antes de anunciar recebimento da transmissão.
 
 ## Ainda precisa de confirmação

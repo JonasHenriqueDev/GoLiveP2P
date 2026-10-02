@@ -3,6 +3,8 @@
 #include <windows.h>
 #include <mmsystem.h>
 
+#include <algorithm>
+#include <cstdlib>
 #include <cmath>
 #include <cstdio>
 #include <vector>
@@ -31,7 +33,8 @@ static LRESULT CALLBACK procedure(HWND hwnd, UINT message, WPARAM w, LPARAM l) {
   }
   return DefWindowProcW(hwnd, message, w, l);
 }
-int main() {
+int main(int argc, char** argv) {
+  const unsigned duration = argc > 1 ? std::clamp(static_cast<unsigned>(std::strtoul(argv[1], nullptr, 10)), 40u, 300u) : 40u;
   WNDCLASSW klass{};
   klass.hInstance = GetModuleHandleW(nullptr);
   klass.lpszClassName = L"GoLiveMediaFixture";
@@ -62,7 +65,7 @@ int main() {
   header.lpData = (LPSTR)samples.data();
   header.dwBufferLength = (DWORD)(samples.size() * 2);
   header.dwFlags = WHDR_BEGINLOOP | WHDR_ENDLOOP;
-  header.dwLoops = 30;
+  header.dwLoops = duration;
   if (output) {
     waveOutPrepareHeader(output, &header, sizeof(header));
     waveOutWrite(output, &header, sizeof(header));
@@ -70,7 +73,7 @@ int main() {
   auto start = GetTickCount64();
   bool covered = false, resized = false;
   MSG message{};
-  while (GetTickCount64() - start < 40000) {
+  while (GetTickCount64() - start < duration * 1000ull) {
     while (PeekMessageW(&message, nullptr, 0, 0, PM_REMOVE)) {
       TranslateMessage(&message);
       DispatchMessageW(&message);

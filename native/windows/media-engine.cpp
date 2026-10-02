@@ -308,7 +308,7 @@ class Engine {
           "queue max-size-buffers=0 max-size-bytes=0 max-size-time=500000000 ! audioconvert ! audioresample ! "
           "audio/x-raw,format=F32LE,channels=2,rate=48000,layout=interleaved ! tee name=sound "
 #ifdef _WIN32
-          "sound. ! queue max-size-buffers=0 max-size-bytes=0 max-size-time=500000000 ! audioconvert ! wasapi2sink name=playback sync=true buffer-time=200000 latency-time=20000 sound. ! queue leaky=downstream max-size-buffers=2 ! appsink "
+          "sound. ! queue max-size-buffers=0 max-size-bytes=0 max-size-time=500000000 ! audioconvert ! wasapi2sink name=playback sync=true qos=true buffer-time=200000 latency-time=20000 sound. ! queue leaky=downstream max-size-buffers=2 ! appsink "
 #else
           "sound. ! queue max-size-buffers=0 max-size-bytes=0 max-size-time=500000000 ! audioconvert ! autoaudiosink name=playback sync=true sound. ! queue leaky=downstream max-size-buffers=2 ! appsink "
 #endif
@@ -319,7 +319,7 @@ class Engine {
       const auto sink = chain.find("autoaudiosink name=playback sync=true");
       if (sink != std::string::npos)
         chain.replace(sink, strlen("autoaudiosink name=playback sync=true"),
-                      "pulsesink name=playback sync=true buffer-time=200000 latency-time=20000 slave-method=resample");
+                      "pulsesink name=playback sync=true qos=true buffer-time=200000 latency-time=20000 slave-method=resample");
     }
 #endif
     if (chain.empty() || peer->closing) return;
@@ -1006,7 +1006,12 @@ class Engine {
       auto bus = gst_element_get_bus(pipeline);
       while (
           auto message = gst_bus_pop_filtered(
-              bus, (GstMessageType)(GST_MESSAGE_ERROR | GST_MESSAGE_WARNING | GST_MESSAGE_EOS))) {
+              bus, (GstMessageType)(GST_MESSAGE_ERROR | GST_MESSAGE_WARNING | GST_MESSAGE_EOS | GST_MESSAGE_LATENCY))) {
+        if (GST_MESSAGE_TYPE(message) == GST_MESSAGE_LATENCY) {
+          gst_bin_recalculate_latency(GST_BIN(pipeline));
+          gst_message_unref(message);
+          continue;
+        }
         if (GST_MESSAGE_TYPE(message) == GST_MESSAGE_EOS)
           emit({{"event", "error"}, {"peer", id}, {"message", "Media source ended"}});
         else {
@@ -1040,10 +1045,13 @@ class Engine {
           auto element = GST_ELEMENT(g_value_get_object(&value));
           auto factory = gst_element_get_factory(element);
           const auto name = factory ? gst_plugin_feature_get_name(GST_PLUGIN_FEATURE(factory)) : "";
-          if (!strcmp(name, "opusdec") || !strcmp(name, "rtpjitterbuffer")) {
+          const auto kind = factory ? gst_element_factory_get_metadata(factory, GST_ELEMENT_METADATA_KLASS) : nullptr;
+          const bool audioSink = kind && strstr(kind, "Audio") && strstr(kind, "Sink");
+          if ((!strcmp(name, "opusdec") || !strcmp(name, "rtpjitterbuffer") || audioSink) &&
+              g_object_class_find_property(G_OBJECT_GET_CLASS(element), "stats")) {
             GstStructure* stats = nullptr;
             g_object_get(element, "stats", &stats, nullptr);
-            if (stats) { out[name] = structureJson(stats); gst_structure_free(stats); }
+            if (stats) { out[audioSink ? "playback" : name] = structureJson(stats); gst_structure_free(stats); }
           }
           g_value_reset(&value);
           break;

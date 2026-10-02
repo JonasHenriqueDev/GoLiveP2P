@@ -101,9 +101,11 @@ inline std::vector<Process> snapshot(DWORD root = 0) {
     out.push_back(std::move(item));
   } while (Process32NextW(snap.get(), &entry));
   std::set<DWORD> required;
+  std::map<DWORD, size_t> positions;
+  for (size_t i = 0; i < out.size(); ++i) positions[out[i].pid] = i;
   auto lookup = [&](DWORD pid) -> const Process* {
-    const auto it = std::find_if(out.begin(), out.end(), [pid](const auto& item) { return item.pid == pid; });
-    return it == out.end() ? nullptr : &*it;
+    const auto it = positions.find(pid);
+    return it == positions.end() ? nullptr : &out[it->second];
   };
   if (root) {
     // Enumerate EVERY process relationship. Query costly identities only for

@@ -860,6 +860,17 @@ void MainWindow::collect() {
     const auto audio = lastStats["audio"].toObject();
     if (transmitting) lastAudioRms = audio["rms"].toDouble();
     const auto peers = lastStats["peers"].toObject();
+    const auto now = QDateTime::currentMSecsSinceEpoch();
+    if (now - lastAudioDiagnostic >= 5000) {
+      lastAudioDiagnostic = now;
+      QJsonObject diagnostic{{"capture", audio}};
+      QJsonObject reception;
+      for (auto it = peers.begin(); it != peers.end(); ++it)
+        reception[it.key()] = it.value().toObject()["audioRecovery"];
+      diagnostic["reception"] = reception;
+      log("Diagnóstico de áudio: " +
+          QString::fromUtf8(QJsonDocument(diagnostic).toJson(QJsonDocument::Compact)));
+    }
     QStringList lines;
     for (auto it = peers.begin(); it != peers.end(); ++it) {
       auto p = it.value().toObject();
@@ -911,7 +922,11 @@ void MainWindow::saveLog() {
       QFileDialog::getSaveFileName(this, "Salvar diagnóstico", "golive-log.txt", "Texto (*.txt)");
   if (path.isEmpty()) return;
   QFile file(path);
-  if (file.open(QIODevice::WriteOnly)) file.write(logs->toPlainText().toUtf8());
+  if (file.open(QIODevice::WriteOnly)) {
+    file.write(logs->toPlainText().toUtf8());
+    file.write("\n\nÚltimas estatísticas de mídia:\n");
+    file.write(QJsonDocument(lastStats).toJson());
+  }
 }
 void MainWindow::sendLog() {
   auto item = people->currentItem();

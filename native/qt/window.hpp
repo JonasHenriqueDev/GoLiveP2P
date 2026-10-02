@@ -55,6 +55,7 @@ class MainWindow : public QMainWindow {
   QSet<QString> mediaPeers, restarting;
   QMap<QString, QJsonArray> pendingIce;
   QJsonArray statsSamples;
+  qint64 lastAudioDiagnostic = 0;
   struct Rate {
     double bytes = 0, frames = 0;
     qint64 time = 0;

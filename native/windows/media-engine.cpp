@@ -2,17 +2,19 @@
 #define WIN32_LEAN_AND_MEAN
 #define NOMINMAX
 #define GST_USE_UNSTABLE_API
+#ifdef _WIN32
 #include <audiopolicy.h>
 #include <dwmapi.h>
+#include <mmdeviceapi.h>
+#include <windows.h>
+#include <wrl/client.h>
+#endif
 #include <gst/app/gstappsink.h>
 #include <gst/app/gstappsrc.h>
 #include <gst/gst.h>
 #include <gst/sdp/sdp.h>
 #include <gst/video/video-event.h>
 #include <gst/webrtc/webrtc.h>
-#include <mmdeviceapi.h>
-#include <windows.h>
-#include <wrl/client.h>
 
 #include <atomic>
 #include <cmath>
@@ -22,6 +24,8 @@
 #include <mutex>
 #include <set>
 #include <thread>
+#include <algorithm>
+#include <chrono>
 
 #include "vendor/json.hpp"
 using Json = nlohmann::json;
@@ -31,6 +35,7 @@ static void emit(Json value) {
   std::lock_guard<std::mutex> lock(outputMutex);
   std::cout << value.dump() << '\n' << std::flush;
 }
+#ifdef _WIN32
 static std::string utf8(const std::wstring& text) {
   int n =
       WideCharToMultiByte(CP_UTF8, 0, text.data(), (int)text.size(), nullptr, 0, nullptr, nullptr);
@@ -77,6 +82,10 @@ static Json sources() {
       reinterpret_cast<LPARAM>(&out));
   return out;
 }
+#else
+static Json sources() { return Json::array(); }
+static void Sleep(unsigned milliseconds) { std::this_thread::sleep_for(std::chrono::milliseconds(milliseconds)); }
+#endif
 static GstElement* parse(const std::string& text) {
   GError* error = nullptr;
   GstElement* pipeline = gst_parse_launch(text.c_str(), &error);
@@ -127,8 +136,10 @@ static Json structureJson(const GstStructure* structure) {
   }
   return out;
 }
+#ifdef _WIN32
 #include "process-audio.hpp"
 #include "window-source.hpp"
+#endif
 struct Peer {
   std::string id;
   GstElement *pipeline = nullptr, *rtc = nullptr, *video = nullptr, *audio = nullptr;
@@ -151,7 +162,9 @@ struct Peer {
 };
 class Engine {
   GstElement *capture = nullptr, *encoder = nullptr;
+#ifdef _WIN32
   std::unique_ptr<WindowSource> windowSource;
+#endif
   std::map<std::string, std::unique_ptr<Peer>> peers;
   std::map<std::string, std::vector<std::pair<unsigned, std::string>>> earlyCandidates;
   std::mutex peerMutex;
@@ -260,17 +273,28 @@ class Engine {
             return GST_PAD_PROBE_OK;
           },
           peer, nullptr);
+#ifdef _WIN32
       chain =
           "d3d11download ! video/x-raw ! queue max-size-buffers=2 leaky=downstream ! videoconvert "
           "! videoscale add-borders=true ! "
           "video/x-raw,width=1280,height=720,pixel-aspect-ratio=1/1 ! videorate drop-only=true ! "
           "video/x-raw,framerate=30/1 ! jpegenc quality=85 ! appsink name=display "
           "emit-signals=true sync=false max-buffers=1 drop=true";
+#else
+      chain = "queue max-size-buffers=2 leaky=downstream ! videoconvert ! videoscale add-borders=true ! "
+              "video/x-raw,width=1280,height=720,pixel-aspect-ratio=1/1 ! videorate drop-only=true ! "
+              "video/x-raw,framerate=30/1 ! jpegenc quality=85 ! appsink name=display "
+              "emit-signals=true sync=false max-buffers=1 drop=true";
+#endif
     } else if (g_str_has_prefix(name, "audio/x-raw"))
       chain =
           "queue ! audioconvert ! audioresample ! "
           "audio/x-raw,format=F32LE,channels=2,rate=48000,layout=interleaved ! tee name=sound "
+#ifdef _WIN32
           "sound. ! queue ! audioconvert ! wasapi2sink sync=true sound. ! queue ! appsink "
+#else
+          "sound. ! queue ! audioconvert ! autoaudiosink sync=true sound. ! queue ! appsink "
+#endif
           "name=meter emit-signals=true sync=false max-buffers=2 drop=true";
     gst_caps_unref(caps);
     if (chain.empty() || peer->closing) return;
@@ -422,7 +446,9 @@ class Engine {
     }
   }
   void stop() {
+#ifdef _WIN32
     windowSource.reset();
+#endif
     earlyCandidates.clear();
     audioRunning = false;
     if (audioWorker.joinable()) audioWorker.join();
@@ -448,6 +474,7 @@ class Engine {
     }
   }
   Json start(const Json& config) {
+#ifdef _WIN32
     stop();
     settings = config;
     encodedFrames = 0;
@@ -690,6 +717,10 @@ class Engine {
             {"method", method},
             {"borderRemovalVerified", false},
             {"audio", false}};
+#else
+    (void)config;
+    throw std::runtime_error("Linux is receive-only in this release");
+#endif
   }
   void offer(const std::string& id) {
     if (!capture) throw std::runtime_error("Capture not started");
@@ -822,11 +853,13 @@ class Engine {
     g_free(bytes);
   }
   void poll() {
+#ifdef _WIN32
     if (windowSource && windowSource->unhealthy()) {
       emit({{"event", "error"}, {"peer", "local"},
             {"message", "Window capture stopped: application closed, minimized or unresponsive"}});
       stop();
     }
+#endif
     std::vector<std::pair<GstElement*, std::string>> pipelines;
     if (capture) pipelines.emplace_back(capture, "local");
     for (auto& [id, peer] : peers) pipelines.emplace_back(peer->pipeline, id);
@@ -890,6 +923,7 @@ class Engine {
     auto method = request.at("method").get<std::string>();
     auto data = request.value("data", Json::object());
     if (method == "sources") return sources();
+#ifdef _WIN32
     if (method == "audio-sessions") return process_audio::sessions();
     if (method == "policy-test") {
       using process_audio::Process;
@@ -918,6 +952,9 @@ class Engine {
       expect(!process_audio::descendant(2000002, 2000001, list));
       return {{"passed", 9}};
     }
+#else
+    if (method == "audio-sessions") return Json::array();
+#endif
     if (method == "capabilities")
       return {{"runtime", gst_version_string()},
               {"capture",
@@ -961,12 +998,14 @@ struct Input {
   std::atomic<bool> eof{false};
 };
 int main(int argc, char** argv) {
+#ifdef _WIN32
   SetErrorMode(SEM_FAILCRITICALERRORS | SEM_NOGPFAULTERRORBOX);
   const HRESULT apartment = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
   if (FAILED(apartment)) {
     std::cerr << "COM initialization failed\n";
     return 1;
   }
+#endif
   gst_init(&argc, &argv);
   Input input;
   std::thread reader([&] {
@@ -1015,6 +1054,8 @@ int main(int argc, char** argv) {
   }
   engine.stop();
   reader.join();
+#ifdef _WIN32
   CoUninitialize();
+#endif
   return 0;
 }

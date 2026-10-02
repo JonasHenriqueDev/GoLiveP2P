@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=GoLive P2P
+Comment=P2P screen sharing client over Tailscale
+Comment[pt_BR]=Cliente de transmissão de tela pela Tailscale
+Exec=golive-p2p
+Icon=golive-p2p
+Terminal=false
+Categories=Network;AudioVideo;
+StartupWMClass=GoLive P2P

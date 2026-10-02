@@ -1,0 +1,23 @@
+{
+  "version": "0.6.0-qt.1",
+  "productionUI": "Qt Widgets + C++ only",
+  "migrationFullyValidated": false,
+  "windowsBuild": true,
+  "linuxBuildAndPackagedStartup": true,
+  "qtTests": true,
+  "processAudioTests": true,
+  "policyTests": true,
+  "staticAnalysis": true,
+  "installerPayloadInspectedAndExecuted": true,
+  "localQtAudioVideoAndFullscreen": true,
+  "sourcePickerPreviewsInspected": true,
+  "windows11": false,
+  "qtCrossDeviceAudio": false,
+  "realDiscordExclusion": false,
+  "minecraftGameplayAudio": false,
+  "qtInstalledUpgrade": false,
+  "universalBorderRemoval": false,
+  "latencyAndLoad": false,
+  "licensesFullyAudited": false,
+  "perReceiverCongestionControl": false
+}

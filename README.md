@@ -4,7 +4,7 @@ Compartilhamento de janela ou monitor com até cinco participantes pela mesma ta
 
 ## Downloads e instalação
 
-A versão Qt será disponibilizada como **pré-release experimental**, com instalador Windows completo, cliente Linux de recepção e checksums SHA-256 na [página de releases](https://github.com/JonasHenriqueDev/GoLiveP2P/releases). Não anuncia conclusão de todos os critérios de mídia. Consulte [resultados reais e limites](docs/qt-validation.md).
+A versão Qt está disponível como **pré-release experimental**, com instalador Windows completo, cliente Linux de recepção e checksums SHA-256 na [release v0.6.0-qt.1](https://github.com/JonasHenriqueDev/GoLiveP2P/releases/tag/v0.6.0-qt.1). Não anuncia conclusão de todos os critérios de mídia. Consulte [resultados reais e limites](docs/qt-validation.md).
 
 Windows: execute o instalador EXE. As DLLs Qt, o runtime C++, os executáveis de captura e as bibliotecas de mídia são incluídos. Não é necessário instalar Qt, Visual Studio, Node ou GStreamer para usar. A primeira troca da versão Electron para Qt exige instalar esse EXE; o pacote Qt instala em diretório separado. Feche o GoLive anterior para liberar a porta da sala. Linux: extraia o pacote `linux-x64.tar.gz` e execute `golive`; essa etapa é exclusivamente cliente de recepção.
 

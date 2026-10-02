@@ -335,7 +335,9 @@ MainWindow::MainWindow(const QString& runtime, QWidget* parent)
   log("GoLive " + QString(GOLIVE_VERSION) + " | Qt " + qVersion() + " | " +
       QSysInfo::prettyProductName());
 #ifndef Q_OS_WIN
-  create->hide();share->hide();controls->hide();
+  create->hide();
+  share->hide();
+  controls->hide();
 #endif
   refreshTailnet();
   engine.start();
@@ -371,13 +373,14 @@ void MainWindow::refreshTailnet() {
 }
 void MainWindow::createRoom() {
 #ifndef Q_OS_WIN
-  log("Linux é cliente de recepção nesta etapa");return;
+  log("Linux é cliente de recepção nesta etapa");
+  return;
 #endif
   if (tailIp.isEmpty()) {
     log("Conecte o Tailscale para criar sala");
     return;
   }
-  if (!server.listen(tailIp,roomPort)) {
+  if (!server.listen(tailIp, roomPort)) {
     log("Não foi possível abrir a porta 47621; outra sala pode estar aberta");
     return;
   }
@@ -392,7 +395,7 @@ void MainWindow::joinRoom(const QString& ip) {
   prefs.setValue("name", name->text().trimmed());
   prefs.setValue("host", ip);
   host->setText(ip);
-  client.join(ip, name->text(),roomPort);
+  client.join(ip, name->text(), roomPort);
 }
 void MainWindow::leaveRoom() {
   stopStream();
@@ -569,7 +572,10 @@ QJsonObject MainWindow::captureSettings(const QString& source, const QJsonArray&
 }
 void MainWindow::startSource(const QString& source, const QJsonArray& allowed) {
 #ifndef Q_OS_WIN
-  Q_UNUSED(source);Q_UNUSED(allowed);log("Linux é cliente de recepção nesta etapa");return;
+  Q_UNUSED(source);
+  Q_UNUSED(allowed);
+  log("Linux é cliente de recepção nesta etapa");
+  return;
 #endif
   if (starting || transmitting || client.selfId().isEmpty() ||
       (!streamer.isEmpty() && streamer != client.selfId()))
@@ -734,9 +740,12 @@ void MainWindow::selectSource() {
     connect(buttons, &QDialogButtonBox::rejected, dialog, &QDialog::reject);
     dialog->show();
     installSourceThumbnails(dialog, list);
-    if (!testReport.isEmpty()) QTimer::singleShot(1200, dialog, [this, dialog] {
-      QGuiApplication::primaryScreen()->grabWindow(dialog->winId()).save(testReport + ".picker.png");
-    });
+    if (!testReport.isEmpty())
+      QTimer::singleShot(1200, dialog, [this, dialog] {
+        QGuiApplication::primaryScreen()
+            ->grabWindow(dialog->winId())
+            .save(testReport + ".picker.png");
+      });
   });
 }
 void MainWindow::discoverRooms() {
@@ -835,6 +844,18 @@ void MainWindow::collect() {
               .arg(bytes / 1000000, 0, 'f', 2)
               .arg(rtt < 0 ? QString("—") : QString::number(rtt, 'f', 0))
               .arg(lost));
+      const auto now = QDateTime::currentMSecsSinceEpoch();
+      const double frames =
+          transmitting ? lastStats["encodedFrames"].toDouble() : p["receivedFrames"].toDouble();
+      if (rates.contains(it.key())) {
+        auto old = rates[it.key()];
+        const auto elapsed = now - old.time;
+        if (elapsed > 0 && bytes >= old.bytes && frames >= old.frames)
+          lines.last() +=
+              " · " + QString::number((bytes - old.bytes) * 8 / elapsed / 1000, 'f', 2) +
+              " Mbps · " + QString::number((frames - old.frames) * 1000 / elapsed, 'f', 0) + " FPS";
+      }
+      rates[it.key()] = {bytes, frames, now};
       if (!transmitting)
         audioInfo->setText(p["audioRms"].toDouble() > 0.0001 ? "Áudio recebido: som detectado"
                                                              : "Áudio recebido: silêncio");
@@ -872,7 +893,7 @@ void MainWindow::toggleFullscreen() {
 }
 void MainWindow::report() {
   if (testReport.isEmpty()) return;
-  if(isVisible()) QGuiApplication::primaryScreen()->grabWindow(winId()).save(testReport + ".png");
+  if (isVisible()) QGuiApplication::primaryScreen()->grabWindow(winId()).save(testReport + ".png");
   QFile file(testReport);
   if (file.open(QIODevice::WriteOnly))
     file.write(QJsonDocument(QJsonObject{{"version", GOLIVE_VERSION},
@@ -898,12 +919,18 @@ void MainWindow::automate(const QStringList& args) {
   };
   testReport = value("--report");
   testSource = value("--source");
-  bool portValid=false;const auto specifiedPort=value("--port").toUInt(&portValid);
-  if(portValid && specifiedPort>0 && specifiedPort<=65535)roomPort=quint16(specifiedPort);
+  bool portValid = false;
+  const auto specifiedPort = value("--port").toUInt(&portValid);
+  if (portValid && specifiedPort > 0 && specifiedPort <= 65535) roomPort = quint16(specifiedPort);
   if (args.contains("--picker-test")) {
     auto timer = new QTimer(this);
     timer->setInterval(250);
-    connect(timer, &QTimer::timeout, this, [this, timer] { if(engine.isReady()){timer->stop();selectSource();} });
+    connect(timer, &QTimer::timeout, this, [this, timer] {
+      if (engine.isReady()) {
+        timer->stop();
+        selectSource();
+      }
+    });
     timer->start();
   }
   if (args.contains("--no-audio")) audio->setChecked(false);

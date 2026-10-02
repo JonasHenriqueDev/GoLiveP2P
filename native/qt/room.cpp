@@ -308,7 +308,9 @@ void RoomClient::leave() {
     socket.flush();
     // Let the server process leave-room and close the connection. A close
     // control frame can otherwise overtake queued application frames in Qt.
-    QTimer::singleShot(1000, this, [this] { if (leaving) socket.close(); });
+    QTimer::singleShot(1000, this, [this] {
+      if (leaving) socket.close();
+    });
   } else {
     socket.close();
   }

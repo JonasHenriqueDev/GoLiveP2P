@@ -13,7 +13,7 @@ cp "$qt_root/plugins/tls/"*.so "$stage/plugins/tls/"
 # dependencies of those plugins as well as the executable (not just ldd of UI).
 cp /usr/lib/x86_64-linux-gnu/gstreamer-1.0/*.so "$stage/native-media/lib/gstreamer-1.0/"
 cp /usr/lib/x86_64-linux-gnu/gstreamer1.0/gstreamer-1.0/gst-plugin-scanner "$stage/native-media/"
-export LD_LIBRARY_PATH="$stage/lib:$LD_LIBRARY_PATH"
+export LD_LIBRARY_PATH="$stage/lib:${LD_LIBRARY_PATH:-}"
 python3 - "$stage" <<'PY'
 import pathlib, subprocess, re, shutil, sys
 root=pathlib.Path(sys.argv[1]); todo=[root/'GoLive P2P',root/'native-media/media-engine',root/'native-media/gst-plugin-scanner',*root.glob('plugins/**/*.so'),*root.glob('native-media/lib/gstreamer-1.0/*.so'),*root.glob('lib/*.so*')]

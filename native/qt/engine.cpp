@@ -46,12 +46,12 @@ void EngineProcess::start() {
   env.insert("GST_PLUGIN_SYSTEM_PATH", runtime_ + "/lib/gstreamer-1.0");
   env.insert("GST_PLUGIN_SCANNER", runtime_ + "/libexec/gstreamer-1.0/gst-plugin-scanner.exe");
 #else
-  const auto plugins=runtime_+"/lib/gstreamer-1.0";
-  if(QDir(plugins).exists()) {
-    env.insert("GST_PLUGIN_PATH",plugins);
-    env.insert("GST_PLUGIN_SYSTEM_PATH",plugins);
-    env.insert("LD_LIBRARY_PATH",runtime_+"/lib:"+env.value("LD_LIBRARY_PATH"));
-    env.insert("GST_PLUGIN_SCANNER",runtime_+"/gst-plugin-scanner");
+  const auto plugins = runtime_ + "/lib/gstreamer-1.0";
+  if (QDir(plugins).exists()) {
+    env.insert("GST_PLUGIN_PATH", plugins);
+    env.insert("GST_PLUGIN_SYSTEM_PATH", plugins);
+    env.insert("LD_LIBRARY_PATH", runtime_ + "/lib:" + env.value("LD_LIBRARY_PATH"));
+    env.insert("GST_PLUGIN_SCANNER", runtime_ + "/gst-plugin-scanner");
   }
 #endif
   env.insert("GST_REGISTRY",
@@ -103,7 +103,7 @@ void EngineProcess::request(const QString& method, const QJsonObject& data, Call
     return;
   }
   const int id = ++nextId;
-  pending[id] = {callback, QDateTime::currentMSecsSinceEpoch() + 20000};
+  pending[id] = {method, callback, QDateTime::currentMSecsSinceEpoch() + 20000};
   auto bytes = Protocol::json({{"v", 1}, {"id", id}, {"method", method}, {"data", data}}) + '\n';
   if (process.write(bytes) != bytes.size()) {
     auto p = pending.take(id);
@@ -146,6 +146,12 @@ void EngineProcess::read() {
         return;
       }
       const auto reason = v["ok"].toBool() ? QString() : v["error"].toString("Falha nativa");
+      if (reason.isEmpty() && !Protocol::mediaResult(task.method, v["result"])) {
+        if (task.callback) task.callback({}, "Resultado IPC inválido");
+        process.kill();
+        fail("Resultado IPC inválido");
+        return;
+      }
       if (task.callback) task.callback(v["result"], reason);
       if (!reason.isEmpty()) emit error(reason);
     } else {

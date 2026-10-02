@@ -21,6 +21,7 @@ class EngineProcess : public QObject {
 
  private:
   struct Pending {
+    QString method;
     Callback callback;
     qint64 deadline;
   };

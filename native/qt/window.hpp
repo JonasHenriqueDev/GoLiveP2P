@@ -57,12 +57,17 @@ class MainWindow : public QMainWindow {
   QWidget *lobby, *room, *side, *controls;
   QSplitter* splitter;
   QString tailIp, streamer, encoder, selectedSource, testReport, testSource;
-  quint16 roomPort=47621;
+  quint16 roomPort = 47621;
   QJsonObject settings, lastStats;
   QMap<QString, QJsonObject> peers;
   QSet<QString> mediaPeers, restarting;
   QMap<QString, QJsonArray> pendingIce;
   QJsonArray statsSamples;
+  struct Rate {
+    double bytes = 0, frames = 0;
+    qint64 time = 0;
+  };
+  QMap<QString, Rate> rates;
   bool transmitting = false, starting = false, fullscreen = false, closed = false,
        statsBusy = false;
   quint64 previewFrames = 0;

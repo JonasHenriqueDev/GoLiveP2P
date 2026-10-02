@@ -743,9 +743,11 @@ void MainWindow::selectSource() {
     installSourceThumbnails(dialog, list);
     if (!testReport.isEmpty())
       QTimer::singleShot(1200, dialog, [this, dialog] {
-        QGuiApplication::primaryScreen()
-            ->grabWindow(dialog->winId())
-            .save(testReport + ".picker.png");
+        // DWM thumbnails are composed after the backing-store paint. A
+        // BitBlt of the HWND omits that layer; capture the composed desktop.
+        auto screen = dialog->screen();
+        auto rect = dialog->frameGeometry().translated(-screen->geometry().topLeft());
+        screen->grabWindow(0).copy(rect).save(testReport + ".picker.png");
       });
   });
 }

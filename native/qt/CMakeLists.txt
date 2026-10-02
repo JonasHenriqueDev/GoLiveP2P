@@ -19,7 +19,9 @@ if(MSVC)
   target_compile_options(golive-qt PRIVATE /W4 /WX /utf-8)
   if(GOLIVE_STATIC_ANALYSIS)
     target_compile_options(golive-core PRIVATE /analyze)
-    target_compile_options(golive-qt PRIVATE /analyze)
+    # Qt forward-declares HRESULT before Windows SDK SAL declarations; this
+    # annotation mismatch is external to the application.
+    target_compile_options(golive-qt PRIVATE /analyze /wd28301)
   endif()
 endif()
 enable_testing()

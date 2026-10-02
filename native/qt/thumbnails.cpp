@@ -12,8 +12,20 @@ void installSourceThumbnails(QDialog* dialog, QListWidget* list) {
   for (int i = 0; i < list->count(); ++i) {
     auto item = list->item(i);
     if (!item->data(Qt::UserRole).toString().startsWith("monitor:")) continue;
+    QRect monitorRect;
+#ifdef Q_OS_WIN
+    const auto id = item->data(Qt::UserRole).toString();
+    MONITORINFO info{};
+    info.cbSize = sizeof(info);
+    auto monitor = reinterpret_cast<HMONITOR>(quintptr(id.mid(8).toULongLong()));
+    if (GetMonitorInfoW(monitor, &info))
+      monitorRect =
+          QRect(info.rcMonitor.left, info.rcMonitor.top, info.rcMonitor.right - info.rcMonitor.left,
+                info.rcMonitor.bottom - info.rcMonitor.top);
+#endif
     for (auto screen : QGuiApplication::screens())
-      if (item->text().contains(screen->name())) {
+      if (item->text().contains(screen->name(), Qt::CaseInsensitive) ||
+          (!monitorRect.isEmpty() && screen->geometry() == monitorRect)) {
         auto shot =
             screen->grabWindow(0).scaled(180, 110, Qt::KeepAspectRatio, Qt::SmoothTransformation);
         if (!shot.isNull()) item->setIcon(QIcon(shot));

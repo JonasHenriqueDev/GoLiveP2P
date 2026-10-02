@@ -3,7 +3,7 @@ on:
   workflow_dispatch:
   push:
     branches: [native/windows-media-engine]
-    paths: ['native/qt/**', 'native/windows/media-engine.cpp', 'native/windows/*-buffer*', 'native/windows/audio-*', 'native/windows/opus-*', '.github/workflows/qt-linux-client.yml']
+    paths: ['native/qt/**', 'native/windows/media-engine.cpp', 'native/windows/*-buffer*', 'native/windows/audio-*', 'native/windows/opus-*', 'native/windows/srtp-*', '.github/workflows/qt-linux-client.yml']
 permissions:
   contents: read
 jobs:
@@ -37,20 +37,23 @@ jobs:
         run: |
           export QT_ROOT="$RUNNER_TEMP/qt/6.8.3/gcc_64"
           bash native/qt/package-linux.sh "$QT_ROOT" work/qt-linux
+          env LD_LIBRARY_PATH="$PWD/release/qt-linux/lib" GST_PLUGIN_PATH="$PWD/release/qt-linux/native-media/lib/gstreamer-1.0" GST_PLUGIN_SYSTEM_PATH="$PWD/release/qt-linux/native-media/lib/gstreamer-1.0" GST_PLUGIN_SCANNER="$PWD/release/qt-linux/native-media/gst-plugin-scanner" GST_REGISTRY="$PWD/work/qt-linux/srtp-registry.bin" work/qt-linux/srtp-runtime-test > work/qt-linux/packaged-srtp.json
           env -u LD_LIBRARY_PATH xvfb-run -a release/qt-linux/golive --duration=3 --report=work/qt-linux/packaged-smoke.json
           test -s work/qt-linux/packaged-smoke.json
       - uses: actions/upload-artifact@v4
         with:
           name: qt-linux-client
           path: |
-            release/GoLive-P2P-0.6.0-qt.3-linux-x64.tar.gz
-            release/SHA256SUMS-linux-0.6.0-qt.3.txt
+            release/GoLive-P2P-0.6.0-qt.4-linux-x64.tar.gz
+            release/SHA256SUMS-linux-0.6.0-qt.4.txt
             work/qt-linux/player-tests.txt
             work/qt-linux/Testing/Temporary/LastTest.log
             work/qt-linux/qt-tests.txt
             work/qt-linux/ui-smoke.json
             work/qt-linux/engine-smoke.txt
             work/qt-linux/packaged-smoke.json
+            work/qt-linux/packaged-srtp.json
+            work/qt-linux/srtp-runtime-test
           if-no-files-found: error
   rpm:
     needs: linux
@@ -67,13 +70,13 @@ jobs:
       - name: Verify the newly built client
         run: |
           cd work/qt-client
-          sha256sum --check --strict release/SHA256SUMS-linux-0.6.0-qt.3.txt
+          sha256sum --check --strict release/SHA256SUMS-linux-0.6.0-qt.4.txt
       - name: Build Fedora RPM
-        run: bash native/qt/linux/build-rpm.sh work/qt-client/release/GoLive-P2P-0.6.0-qt.3-linux-x64.tar.gz
+        run: bash native/qt/linux/build-rpm.sh work/qt-client/release/GoLive-P2P-0.6.0-qt.4-linux-x64.tar.gz
       - name: Install and verify the actual RPM
         run: |
           set -e
-          dnf install -y ./release/GoLive-P2P-0.6.0-qt.3-fedora-x86_64.rpm
+          dnf install -y ./release/GoLive-P2P-0.6.0-qt.4-fedora-x86_64.rpm
           rpm -qi golive-p2p > work/rpm-info.txt
           rpm -ql golive-p2p > work/rpm-files.txt
           rpm -V golive-p2p > work/rpm-verify.txt
@@ -86,6 +89,10 @@ jobs:
           Xvfb :99 -screen 0 1280x800x24 > work/xvfb.log 2>&1 &
           sleep 2
           env -u LD_LIBRARY_PATH DISPLAY=:99 golive-p2p --duration=4 --report=work/rpm-smoke.json
+          # Exercise real encrypted RTP with only the installed private runtime.
+          # A startup smoke test cannot detect missing dlopen NSS modules.
+          chmod +x work/qt-client/work/qt-linux/srtp-runtime-test
+          env LD_LIBRARY_PATH=/opt/golive-p2p/lib GST_PLUGIN_PATH=/opt/golive-p2p/native-media/lib/gstreamer-1.0 GST_PLUGIN_SYSTEM_PATH=/opt/golive-p2p/native-media/lib/gstreamer-1.0 GST_PLUGIN_SCANNER=/opt/golive-p2p/native-media/gst-plugin-scanner GST_REGISTRY=/tmp/golive-srtp-registry.bin work/qt-client/work/qt-linux/srtp-runtime-test > work/rpm-srtp.json
           python3 - <<'PY'
           import json
           v=json.load(open('work/rpm-smoke.json'))
@@ -102,8 +109,9 @@ jobs:
           name: qt-fedora-rpm
           path: |
             release/*.rpm
-            release/SHA256SUMS-rpm-0.6.0-qt.3.txt
+            release/SHA256SUMS-rpm-0.6.0-qt.4.txt
             work/rpm-*.txt
             work/rpm-smoke.json
+            work/rpm-srtp.json
             work/rpmlint.txt
           if-no-files-found: error

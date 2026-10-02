@@ -1,10 +1,10 @@
 Name:           golive-p2p
 Version:        0.6.0
-Release:        0.3.qt3%{?dist}
+Release:        0.4.qt4%{?dist}
 Summary:        GoLive P2P Qt receive-only client (experimental)
 License:        LicenseRef-GoLiveP2P-with-bundled-libraries
 URL:            https://github.com/JonasHenriqueDev/GoLiveP2P
-Source0:        GoLive-P2P-0.6.0-qt.3-linux-x64.tar.gz
+Source0:        GoLive-P2P-0.6.0-qt.4-linux-x64.tar.gz
 Source1:        golive-p2p.desktop
 Source2:        golive-p2p.png
 ExclusiveArch:  x86_64
@@ -55,5 +55,5 @@ desktop-file-validate %{buildroot}%{_datadir}/applications/golive-p2p.desktop
 %{_datadir}/icons/hicolor/256x256/apps/golive-p2p.png
 
 %changelog
-* Fri Oct 02 2026 GoLive P2P project - 0.6.0-0.3.qt3
+* Fri Oct 02 2026 GoLive P2P project - 0.6.0-0.4.qt4
 - Package existing Qt-only receive client with menu launcher and icon.

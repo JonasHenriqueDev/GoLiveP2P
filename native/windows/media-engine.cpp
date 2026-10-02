@@ -1047,7 +1047,7 @@ class Engine {
           const auto name = factory ? gst_plugin_feature_get_name(GST_PLUGIN_FEATURE(factory)) : "";
           const auto kind = factory ? gst_element_factory_get_metadata(factory, GST_ELEMENT_METADATA_KLASS) : nullptr;
           const bool audioSink = kind && strstr(kind, "Audio") && strstr(kind, "Sink");
-          if ((!strcmp(name, "opusdec") || !strcmp(name, "rtpjitterbuffer") || audioSink) &&
+          if ((!strcmp(name, "opusdec") || !strcmp(name, "rtpjitterbuffer") || !strcmp(name, "srtpdec") || audioSink) &&
               g_object_class_find_property(G_OBJECT_GET_CLASS(element), "stats")) {
             GstStructure* stats = nullptr;
             g_object_get(element, "stats", &stats, nullptr);

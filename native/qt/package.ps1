@@ -8,4 +8,4 @@ $manifest=Get-ChildItem $stage -File -Recurse | Where-Object Name -ne 'package-m
 $manifest | ConvertTo-Json -Depth 4 | Set-Content "$stage/package-manifest.json" -Encoding utf8
 Push-Location $PSScriptRoot
 try{& $nsis /V2 installer.nsi;if($LASTEXITCODE -ne 0){throw 'NSIS build failed'}}finally{Pop-Location}
-Get-FileHash (Join-Path $repo 'release/GoLive-P2P-Setup-0.6.0-qt.3.exe') -Algorithm SHA256
+Get-FileHash (Join-Path $repo 'release/GoLive-P2P-Setup-0.6.0-qt.4.exe') -Algorithm SHA256

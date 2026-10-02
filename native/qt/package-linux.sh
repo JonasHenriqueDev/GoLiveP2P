@@ -13,6 +13,12 @@ cp "$qt_root/plugins/tls/"*.so "$stage/plugins/tls/"
 # dependencies of those plugins as well as the executable (not just ldd of UI).
 cp /usr/lib/x86_64-linux-gnu/gstreamer-1.0/*.so "$stage/native-media/lib/gstreamer-1.0/"
 cp /usr/lib/x86_64-linux-gnu/gstreamer1.0/gstreamer-1.0/gst-plugin-scanner "$stage/native-media/"
+# Ubuntu libsrtp uses NSS. These modules are loaded with dlopen by NSS rather
+# than listed by ldd, so the ordinary dependency walk cannot discover them.
+# Keep the entire crypto module set from the same distro/build as libnss3.
+for module in libsoftokn3.so libfreebl3.so libfreeblpriv3.so libnssckbi.so; do
+  cp -L "/usr/lib/x86_64-linux-gnu/$module" "$stage/lib/"
+done
 export LD_LIBRARY_PATH="$stage/lib:$qt_root/lib:${LD_LIBRARY_PATH:-}"
 python3 - "$stage" <<'PY'
 import pathlib, subprocess, re, shutil, sys
@@ -33,7 +39,7 @@ PY
 cp native/qt/THIRD-PARTY.md "$stage/licenses/"
 cp -r native/qt/licenses "$stage/licenses/qt"
 # Include the distro copyright files for the bundled multimedia packages.
-for folder in /usr/share/doc/libqt* /usr/share/doc/libgst* /usr/share/doc/gstreamer* /usr/share/doc/libav* /usr/share/doc/libnice*; do
+for folder in /usr/share/doc/libqt* /usr/share/doc/libgst* /usr/share/doc/gstreamer* /usr/share/doc/libav* /usr/share/doc/libnice* /usr/share/doc/libnss3 /usr/share/doc/libnspr4; do
   if [ -f "$folder/copyright" ]; then cp "$folder/copyright" "$stage/licenses/$(basename "$folder")-copyright"; fi
 done
 cat > "$stage/golive" <<'SH'
@@ -49,5 +55,5 @@ exec "$HERE/GoLive P2P" "$@"
 SH
 chmod +x "$stage/golive"
 printf '[Paths]\nPlugins=plugins\nLibraries=lib\n' > "$stage/qt.conf"
-tar -czf release/GoLive-P2P-0.6.0-qt.3-linux-x64.tar.gz -C release qt-linux
-sha256sum release/GoLive-P2P-0.6.0-qt.3-linux-x64.tar.gz > release/SHA256SUMS-linux-0.6.0-qt.3.txt
+tar -czf release/GoLive-P2P-0.6.0-qt.4-linux-x64.tar.gz -C release qt-linux
+sha256sum release/GoLive-P2P-0.6.0-qt.4-linux-x64.tar.gz > release/SHA256SUMS-linux-0.6.0-qt.4.txt

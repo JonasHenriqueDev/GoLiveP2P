@@ -491,7 +491,7 @@ void MainWindow::message(const QJsonObject& v) {
     refreshPeople();
   } else if (t == "start-stream") {
     streamer = from;
-    streamInfo->setText("Recebendo transmissão de " + peers[from]["name"].toString());
+    streamInfo->setText("Aguardando vídeo de " + peers[from]["name"].toString());
     refreshPeople();
   } else if (t == "stop-stream") {
     removePeer(from);
@@ -549,8 +549,14 @@ void MainWindow::media(const QJsonObject& v) {
         video->frame(QByteArray::fromBase64(v["jpeg"].toString().toLatin1()));
         ++previewFrames;
       }
-    } else if (peer == streamer)
+    } else if (peer == streamer) {
+      const auto before = video->frames;
       video->frame(QByteArray::fromBase64(v["jpeg"].toString().toLatin1()));
+      if (video->frames > before && streamInfo->text().startsWith("Aguardando vídeo")) {
+        log("Primeiro quadro de vídeo recebido e apresentado");
+        streamInfo->setText("Recebendo transmissão de " + peers[peer]["name"].toString());
+      }
+    }
   } else if (e == "signal") {
     QJsonObject signal{{"type", v["type"]}, {"to", peer}};
     if (v.contains("sdp")) signal["sdp"] = v["sdp"];
@@ -870,6 +876,8 @@ void MainWindow::collect() {
       diagnostic["reception"] = reception;
       log("Diagnóstico de áudio: " +
           QString::fromUtf8(QJsonDocument(diagnostic).toJson(QJsonDocument::Compact)));
+      log("Diagnóstico de vídeo e transporte: " +
+          QString::fromUtf8(QJsonDocument(peers).toJson(QJsonDocument::Compact)));
     }
     QStringList lines;
     for (auto it = peers.begin(); it != peers.end(); ++it) {
@@ -936,7 +944,9 @@ void MainWindow::sendLog() {
   }
   client.send({{"type", "log-report"},
                {"to", item->data(Qt::UserRole).toString()},
-               {"text", logs->toPlainText().right(120000)}});
+               {"text", (logs->toPlainText() + "\n\nÚltimas estatísticas de mídia:\n" +
+                         QString::fromUtf8(QJsonDocument(lastStats).toJson()))
+                            .right(120000)}});
 }
 void MainWindow::toggleFullscreen() { player->toggleFullscreen(); }
 void MainWindow::showOptions() {

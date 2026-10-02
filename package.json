@@ -1,6 +1,6 @@
 {
   "name": "golive-p2p",
-  "version": "0.6.0-qt.3",
+  "version": "0.6.0-qt.4",
   "private": true,
   "type": "module",
   "description": "Native Qt C++ UI and P2P media engine. Node is used only for development checks.",

@@ -11,6 +11,7 @@ export class NativeMesh {
   onFrame: (peer: string, jpeg: string) => void = () => {};
   onError: (message: string) => void = () => {};
   onAudio: (active: boolean) => void = () => {};
+  onAudioLevel: (rms: number) => void = () => {};
   onEncoder: (encoder: string) => void = () => {};
   private settings: CaptureSettings | null = null;
   private peers = new Set<string>();
@@ -32,7 +33,16 @@ export class NativeMesh {
   }
   private event(event: NativeEvent) {
     if (event.event === 'frame') this.onFrame(event.peer, event.jpeg);
-    if (event.event === 'audio-state') this.onAudio(event.active);
+    if (event.event === 'audio-state') {
+      this.onAudio(event.active);
+      this.onAudioLevel(event.rms ?? 0);
+      console.info('[Native audio]', {
+        active: event.active,
+        sources: event.sources,
+        rms: event.rms,
+        nonSilentFrames: event.nonSilentFrames,
+      });
+    }
     if (event.event === 'warning') this.onError(event.message);
     if (event.event === 'error') this.onError(event.message);
     if (event.event === 'signal') {

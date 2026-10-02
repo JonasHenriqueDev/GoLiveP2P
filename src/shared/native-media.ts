@@ -83,6 +83,13 @@ export const capabilitiesSchema = z.object({
   webrtc: z.boolean(),
 });
 export const nativeStatsSchema = z.object({
+  audio: z
+    .object({
+      sources: z.number().int().nonnegative(),
+      rms: z.number().min(0).max(1),
+      nonSilentFrames: z.number().int().nonnegative(),
+    })
+    .optional(),
   encodedFrames: z.number().int().nonnegative(),
   width: z.number().int(),
   height: z.number().int(),
@@ -91,6 +98,8 @@ export const nativeStatsSchema = z.object({
     z.object({
       raw: z.record(z.string(), z.unknown()),
       receivedFrames: z.number().int().nonnegative(),
+      audioFrames: z.number().int().nonnegative().optional(),
+      audioRms: z.number().min(0).max(1).optional(),
       width: z.number().int(),
       height: z.number().int(),
       connection: z.number().int().min(0).max(5),
@@ -157,6 +166,8 @@ export const nativeEvent = z.discriminatedUnion('event', [
     event: z.literal('audio-state'),
     active: z.boolean(),
     sources: z.number().int().nonnegative(),
+    rms: z.number().min(0).max(1).optional(),
+    nonSilentFrames: z.number().int().nonnegative().optional(),
   }),
   z.strictObject({
     v: z.literal(1),

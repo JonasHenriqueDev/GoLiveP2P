@@ -26,7 +26,16 @@ export function audioSupport(): { available: boolean; message: string } {
       message:
         'Áudio por processo requer Windows 10 2004 ou posterior; vídeo continua disponível.',
     };
-  if (!existsSync(helperPath()))
+  const enginePath = app.isPackaged
+    ? join(process.resourcesPath, 'native-media', 'media-engine.exe')
+    : join(
+        app.getAppPath(),
+        'native',
+        'windows',
+        'runtime',
+        'media-engine.exe',
+      );
+  if (!existsSync(enginePath))
     return {
       available: false,
       message: 'Módulo nativo de áudio não encontrado.',
@@ -34,7 +43,7 @@ export function audioSupport(): { available: boolean; message: string } {
   return {
     available: true,
     message:
-      'Áudio da janela: o aplicativo testará a API por processo ao iniciar. Se falhar, o vídeo continua sem áudio.',
+      'Janela: áudio do aplicativo selecionado. Monitor: somente aplicativos marcados na lista. Se a captura falhar, o vídeo continua sem áudio.',
   };
 }
 export function stopAudioCapture() {

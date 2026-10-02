@@ -11,11 +11,46 @@ const config = {
   audio: false,
 };
 describe('native media boundary', () => {
+  it('validates measured audio levels without equating an open source with sound', () => {
+    const capturingSilence = {
+      v: 1,
+      event: 'audio-state',
+      active: true,
+      sources: 1,
+      rms: 0,
+      nonSilentFrames: 0,
+    };
+    expect(nativeEvent.parse(capturingSilence)).toEqual(capturingSilence);
+    for (const rms of [-1, 1.1, NaN, Infinity])
+      expect(nativeEvent.safeParse({ ...capturingSilence, rms }).success).toBe(
+        false,
+      );
+    expect(
+      nativeEvent.safeParse({ ...capturingSilence, nonSilentFrames: -1 })
+        .success,
+    ).toBe(false);
+  });
   it('accepts automatic native selection and limits PrintWindow to windows', () => {
-    expect(captureSettings.safeParse({...config, method: 'auto'}).success).toBe(true);
-    expect(captureSettings.safeParse({...config, source: 'window:123', method: 'auto'}).success).toBe(true);
-    expect(captureSettings.safeParse({...config, source: 'window:123', method: 'printwindow'}).success).toBe(true);
-    expect(captureSettings.safeParse({...config, method: 'printwindow'}).success).toBe(false);
+    expect(
+      captureSettings.safeParse({ ...config, method: 'auto' }).success,
+    ).toBe(true);
+    expect(
+      captureSettings.safeParse({
+        ...config,
+        source: 'window:123',
+        method: 'auto',
+      }).success,
+    ).toBe(true);
+    expect(
+      captureSettings.safeParse({
+        ...config,
+        source: 'window:123',
+        method: 'printwindow',
+      }).success,
+    ).toBe(true);
+    expect(
+      captureSettings.safeParse({ ...config, method: 'printwindow' }).success,
+    ).toBe(false);
   });
   it('accepts explicit monitor DXGI and covered-window WGC', () => {
     expect(captureSettings.safeParse(config).success).toBe(true);

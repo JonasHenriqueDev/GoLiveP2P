@@ -17,6 +17,7 @@ type Source = {
   name: string;
   thumbnail: string;
   kind: 'screen' | 'window';
+  pid?: number;
 };
 type Host = { ip: string; name: string; participants: number; full: boolean };
 function App() {
@@ -61,6 +62,7 @@ function App() {
   const [customBitrate, setCustomBitrate] = useState(false);
   const [audio, setAudio] = useState(false);
   const [audioActive, setAudioActive] = useState(false);
+  const [audioLevel, setAudioLevel] = useState(0);
   const [audioCapability, setAudioCapability] = useState({
     available: false,
     message: 'Verificando áudio…',
@@ -220,6 +222,7 @@ function App() {
       media.onFrame = (_peer, jpeg) =>
         setNativeFrame(jpeg ? 'data:image/jpeg;base64,' + jpeg : '');
       media.onAudio = setAudioActive;
+      media.onAudioLevel = setAudioLevel;
       media.onEncoder = setActiveEncoder;
       media.onError = (message) => {
         setError(message);
@@ -900,7 +903,14 @@ function App() {
                   <div className="streamSettings">
                     {qualitySelector}
                     {bitrateSelector}
-                    <small>Áudio: {audioActive ? 'ativo' : 'desativado'}</small>
+                    <small>
+                      Áudio:{' '}
+                      {audioActive
+                        ? audioLevel > 0.0001
+                          ? 'som detectado'
+                          : 'capturando · silêncio'
+                        : 'desativado'}
+                    </small>
                     {nativeWindows && activeEncoder && (
                       <small>
                         Codificação:{' '}
@@ -957,7 +967,9 @@ function App() {
                         }
                       >
                         <option value="auto">Automático (recomendado)</option>
-                        <option value="printwindow">Janelas — PrintWindow (compatibilidade)</option>
+                        <option value="printwindow">
+                          Janelas — PrintWindow (compatibilidade)
+                        </option>
                         <option value="wgc">
                           Janelas e monitores — Windows Graphics Capture
                         </option>
@@ -1022,7 +1034,9 @@ function App() {
                     }
                   >
                     <option value="auto">Automático (recomendado)</option>
-                    <option value="printwindow">Janelas — PrintWindow (compatibilidade)</option>
+                    <option value="printwindow">
+                      Janelas — PrintWindow (compatibilidade)
+                    </option>
                     <option value="wgc">
                       Janelas e monitores — Windows Graphics Capture
                     </option>
@@ -1040,6 +1054,15 @@ function App() {
             {audio && (
               <fieldset>
                 <legend>Aplicativos permitidos no áudio de monitor</legend>
+                <p className="audioHint">
+                  Ao escolher uma janela, o áudio é do aplicativo daquela janela
+                  automaticamente. Esta lista só se aplica a monitor inteiro.
+                </p>
+                <p className="audioHint">
+                  Navegadores: o áudio pode incluir outras abas e janelas do
+                  mesmo aplicativo. Discord e GoLive como aplicativos separados
+                  ficam excluídos.
+                </p>
                 {audioApps.map((item) => (
                   <label className="check" key={item.pid}>
                     <input
@@ -1054,8 +1077,12 @@ function App() {
                         )
                       }
                     />
-                    {item.name}{' '}
-                    {item.allowed ? '' : `— bloqueado: ${item.reason}`}
+                    {sources.find((source) => source.pid === item.pid)?.name
+                      ? `${sources.find((source) => source.pid === item.pid)!.name} (${item.name})`
+                      : item.name}{' '}
+                    {item.allowed
+                      ? ''
+                      : '— áudio bloqueado: origem compartilhada, excluída ou não identificada'}
                   </label>
                 ))}
               </fieldset>

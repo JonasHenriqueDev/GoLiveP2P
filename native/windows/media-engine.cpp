@@ -139,6 +139,7 @@ struct Peer {
   std::atomic<int> width{0}, height{0};
   std::atomic<double> audioRms{0};
   std::atomic<uint64_t> audioFrames{0};
+  uint64_t sentAudioFrames = 0;
   ~Peer() {
     closing = true;
     if (pipeline) gst_element_set_state(pipeline, GST_STATE_NULL);
@@ -160,6 +161,9 @@ class Engine {
   bool audioEnabled = false;
   GstSample* keyframe = nullptr;
   std::atomic<bool> audioRunning{false};
+  std::atomic<unsigned> audioSources{0};
+  std::atomic<double> capturedAudioRms{0};
+  std::atomic<uint64_t> nonSilentAudioFrames{0};
   std::thread audioWorker;
   static GstFlowReturn frame(GstAppSink* sink, gpointer data) {
     auto peer = static_cast<Peer*>(data);
@@ -353,7 +357,7 @@ class Engine {
           "application/x-rtp,media=video,encoding-name=H264,payload=96,clock-rate=90000 ! rtc.";
     if (sender && audioEnabled)
       chain +=
-          " appsrc name=audio is-live=true format=time do-timestamp=true max-buffers=10 "
+          " appsrc name=audio is-live=true format=time do-timestamp=false max-buffers=10 "
           "leaky-type=downstream "
           "caps=\"audio/x-raw,format=S16LE,rate=48000,channels=2,layout=interleaved\" ! queue "
           "max-size-time=100000000 leaky=downstream ! audioconvert ! audioresample ! opusenc "
@@ -373,7 +377,9 @@ class Engine {
     if (peer->audio) {
       auto buffer = gst_buffer_new_allocate(nullptr, 1920, nullptr);
       gst_buffer_memset(buffer, 0, 0, 1920);
+      GST_BUFFER_PTS(buffer) = 0;
       GST_BUFFER_DURATION(buffer) = 10 * GST_MSECOND;
+      peer->sentAudioFrames = 480;
       gst_app_src_push_buffer(GST_APP_SRC(peer->audio), buffer);
     }
     if (sender && peer->video) {
@@ -420,6 +426,8 @@ class Engine {
     earlyCandidates.clear();
     audioRunning = false;
     if (audioWorker.joinable()) audioWorker.join();
+    audioSources = 0;
+    capturedAudioRms = 0;
     if (capture) {
       gst_element_set_state(capture, GST_STATE_NULL);
       gst_object_unref(capture);
@@ -443,6 +451,7 @@ class Engine {
     stop();
     settings = config;
     encodedFrames = 0;
+    nonSilentAudioFrames = 0;
     audioEnabled = config.value("audio", false);
     const auto source = config.at("source").get<std::string>();
     auto method = config.at("method").get<std::string>();
@@ -451,6 +460,13 @@ class Engine {
     if (std::none_of(list.begin(), list.end(), [&](auto& item) { return item["id"] == source; }))
       throw std::runtime_error("Source no longer exists");
     bool window = source.rfind("window:", 0) == 0;
+    process_audio::Process selectedOwner{0, 0, L"", L"", 0};
+    if (window && audioEnabled) {
+      DWORD ownerPid = 0;
+      GetWindowThreadProcessId(reinterpret_cast<HWND>(std::stoull(source.substr(7))), &ownerPid);
+      const auto processes = process_audio::snapshot();
+      if (const auto owner = process_audio::find(ownerPid, processes)) selectedOwner = *owner;
+    }
     if (automatic) method = window ? "printwindow" : "dxgi";
     if (method != "wgc" && method != "dxgi" && method != "printwindow")
       throw std::runtime_error("Invalid capture method");
@@ -591,7 +607,7 @@ class Engine {
     }
     if (audioEnabled) {
       audioRunning = true;
-      audioWorker = std::thread([this, config] {
+      audioWorker = std::thread([this, config, window, selectedOwner] {
         const HRESULT apartment = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
         if (FAILED(apartment)) {
           emit({{"event", "audio-state"}, {"active", false}, {"sources", 0}});
@@ -602,26 +618,56 @@ class Engine {
         }
         try {
           process_audio::Mixer mixer;
-          mixer.start(config);
+          mixer.start(config, window ? &selectedOwner : nullptr);
+          // An audio packet represents exactly 480 samples at 48 kHz. Use a sample clock
+          // for RTP timestamps instead of timestamping each buffer by thread wake-up time.
+          process_audio::ScopedHandle timer(CreateWaitableTimerExW(
+              nullptr, nullptr, CREATE_WAITABLE_TIMER_HIGH_RESOLUTION, TIMER_ALL_ACCESS));
+          process_audio::ScopedHandle fallbackTimer(timer.get() ? nullptr : CreateWaitableTimerW(nullptr, FALSE, nullptr));
+          HANDLE clockTimer = timer.get() ? timer.get() : fallbackTimer.get();
+          LARGE_INTEGER due{};
+          due.QuadPart = -100000;
+          if (!clockTimer || !SetWaitableTimer(clockTimer, &due, 10, nullptr, nullptr, FALSE))
+            throw std::runtime_error("Audio scheduling clock unavailable");
           size_t previous = SIZE_MAX;
+          ULONGLONG lastMeter = 0;
+          double peakRms = 0;
           while (audioRunning) {
             auto samples = mixer.packet();
             auto count = mixer.active();
-            if (count != previous) {
+            double energy = 0;
+            for (auto sample : samples) {
+              const double normalized = sample / 32768.0;
+              energy += normalized * normalized;
+            }
+            const double rms = samples.empty() ? 0 : std::sqrt(energy / samples.size());
+            if (rms > 0.0001) nonSilentAudioFrames += samples.size() / 2;
+            peakRms = std::max(peakRms, rms);
+            audioSources = static_cast<unsigned>(count);
+            capturedAudioRms = rms;
+            const auto now = GetTickCount64();
+            if (count != previous || now - lastMeter >= 1000) {
               previous = count;
-              emit({{"event", "audio-state"}, {"active", count > 0}, {"sources", count}});
+              lastMeter = now;
+              emit({{"event", "audio-state"}, {"active", count > 0}, {"sources", count},
+                    {"rms", peakRms}, {"nonSilentFrames", nonSilentAudioFrames.load()}});
+              peakRms = 0;
             }
             {
               std::lock_guard<std::mutex> lock(peerMutex);
               for (auto& [id, peer] : peers)
                 if (peer->audio) {
                   auto buffer = gst_buffer_new_allocate(nullptr, samples.size() * 2, nullptr);
+                  if (!buffer) throw std::runtime_error("Audio buffer allocation failed");
                   gst_buffer_fill(buffer, 0, samples.data(), samples.size() * 2);
+                  GST_BUFFER_PTS(buffer) = gst_util_uint64_scale(peer->sentAudioFrames, GST_SECOND, 48000);
                   GST_BUFFER_DURATION(buffer) = 10 * GST_MSECOND;
+                  peer->sentAudioFrames += samples.size() / 2;
                   gst_app_src_push_buffer(GST_APP_SRC(peer->audio), buffer);
                 }
             }
-            Sleep(10);
+            if (WaitForSingleObject(clockTimer, 100) != WAIT_OBJECT_0)
+              throw std::runtime_error("Audio scheduling wait failed");
           }
           mixer.stop();
         } catch (const std::exception& error) {
@@ -635,6 +681,8 @@ class Engine {
                 {"message", "Audio blocked after unexpected failure; video continues"}});
           emit({{"event", "audio-state"}, {"active", false}, {"sources", 0}});
         }
+        audioSources = 0;
+        capturedAudioRms = 0;
         CoUninitialize();
       });
     }
@@ -664,15 +712,21 @@ class Engine {
     }
     if (peer.audio) {
       auto audioPad = gst_element_get_static_pad(peer.rtc, "sink_1");
+      bool audioReady = false;
       for (int i = 0; i < 100; ++i) {
         auto caps = audioPad ? gst_pad_get_current_caps(audioPad) : nullptr;
         if (caps) {
+          audioReady = true;
           gst_caps_unref(caps);
           break;
         }
         Sleep(10);
       }
       if (audioPad) gst_object_unref(audioPad);
+      if (!audioReady) {
+        remove(id);
+        throw std::runtime_error("Audio RTP caps negotiation timed out");
+      }
     }
     description(peer, true);
   }
@@ -755,8 +809,14 @@ class Engine {
     for (auto& [id, peer] : peers)
       if (peer->audio) {
         auto buffer = gst_buffer_new_allocate(nullptr, length, nullptr);
+        if (!buffer) {
+          g_free(bytes);
+          throw std::runtime_error("PCM buffer allocation failed");
+        }
         gst_buffer_fill(buffer, 0, bytes, length);
+        GST_BUFFER_PTS(buffer) = gst_util_uint64_scale(peer->sentAudioFrames, GST_SECOND, 48000);
         GST_BUFFER_DURATION(buffer) = gst_util_uint64_scale(length / 4, GST_SECOND, 48000);
+        peer->sentAudioFrames += length / 4;
         gst_app_src_push_buffer(GST_APP_SRC(peer->audio), buffer);
       }
     g_free(bytes);
@@ -818,6 +878,8 @@ class Engine {
       gst_promise_unref(promise);
     }
     return {{"peers", out},
+            {"audio", {{"sources", audioSources.load()}, {"rms", capturedAudioRms.load()},
+                       {"nonSilentFrames", nonSilentAudioFrames.load()}}},
             {"encodedFrames", encodedFrames.load()},
             {"width", settings.value("width", 0)},
             {"height", settings.value("height", 0)}};
@@ -840,16 +902,21 @@ class Engine {
       list[1].name = L"discord.exe";
       expect(!process_audio::safe(2000001, list));
       list[1].name = L"chrome.exe";
+      expect(process_audio::safe(2000001, list));
+      list[1].name = L"svchost.exe";
       expect(!process_audio::safe(2000001, list));
       list[1].name = L"decoder.exe";
       list[1].image = L"";
       expect(!process_audio::safe(2000001, list));
+      list[1].created = 0;
+      expect(!process_audio::safe(2000001, list));
+      list[1].created = 200;
       list[1].image = L"c:\\decoder.exe";
       expect(process_audio::identityMatches(2000001, 100, list));
       list[0].created = 300;
       expect(!process_audio::identityMatches(2000001, 100, list));
       expect(!process_audio::descendant(2000002, 2000001, list));
-      return {{"passed", 7}};
+      return {{"passed", 9}};
     }
     if (method == "capabilities")
       return {{"runtime", gst_version_string()},

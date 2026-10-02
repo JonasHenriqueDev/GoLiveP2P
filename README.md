@@ -4,11 +4,11 @@ Aplicativo desktop para compartilhar tela com até cinco pessoas na mesma tailne
 
 ## Plataformas e requisitos
 
-### Migração nativa em desenvolvimento (`0.5.0-native.1`)
+### Migração nativa em desenvolvimento (`0.5.0-native.3`)
 
-O motor Windows agora tem implementação C++ com GStreamer: captura WGC/DXGI, H.264 com NVENC/fallback OpenH264, áudio por árvore de processos, mistura de aplicativos explicitamente permitidos, conexões WebRTC independentes e decodificação nativa. Electron + React + TypeScript continuam como interface. Consulte [arquitetura e limites](docs/native-media-windows.md) e [validação real](docs/native-validation.md). A versão de desenvolvimento **não é uma release validada**.
+O motor Windows agora tem implementação C++ com GStreamer: captura automática PrintWindow para janelas e DXGI para monitores, WGC opcional, H.264 com NVENC/fallback OpenH264, áudio por árvore de processos, mistura de aplicativos explicitamente permitidos, conexões WebRTC independentes e decodificação nativa. Electron + React + TypeScript continuam como interface. Consulte [arquitetura e limites](docs/native-media-windows.md) e [validação real](docs/native-validation.md). A versão de desenvolvimento **não é uma release validada**.
 
-A borda WGC no Windows 10 não foi removida nem é anunciada como removida. A prévia é apresentada a 15 FPS e o receptor Windows a 30 FPS, mesmo quando o fluxo de mídia é 60 FPS. O controle de congestionamento por receptor e a revisão completa do isolamento de áudio ainda impedem a publicação. Os parágrafos sobre a release 0.4.0 abaixo descrevem o comportamento anterior.
+A borda WGC no Windows 10 não foi removida nem é anunciada como removida. A prévia é apresentada a 15 FPS e o receptor Windows a 30 FPS, mesmo quando o fluxo de mídia é 60 FPS. O controle de congestionamento por receptor e a revisão completa do isolamento de áudio ainda impedem uma release estável. Pré-releases de teste foram autorizadas explicitamente pelo usuário e descrevem suas limitações. Os parágrafos sobre a release 0.4.0 abaixo descrevem o comportamento anterior.
 
 Uma possível migração futura da interface para **Qt + C++** fica registrada como opção. Ela não foi implementada nesta etapa.
 
@@ -67,7 +67,7 @@ Presets: 720p30, 720p60, 1080p30, 1080p60 e 1440p30. São metas de captura. O us
 
 Ao compartilhar **uma janela no Windows compatível**, marcar **Áudio do aplicativo (janela)** solicita a captura da árvore de processos da janela selecionada. O helper bloqueia janelas do Discord e do próprio GoLive e interrompe o áudio se um desses aplicativos aparecer como subprocesso da árvore capturada. O microfone não é capturado como entrada. O loopback geral do Electron foi removido para evitar misturar origens de áudio.
 
-Ao compartilhar **um monitor**, a transmissão é apenas de vídeo. A mistura de áudio dos aplicativos permitidos, com exclusão do Discord, do microfone, do próprio app e de sessões sem origem confiável, ainda não foi implementada nem validada. É bloqueada para evitar vazamentos. No Windows 10 2004 ou posterior, o app tenta iniciar a captura de áudio da janela; se a API não funcionar naquela instalação, mostra o erro e mantém o vídeo sem áudio. No Linux, o áudio fica desativado. Uma aba do Discord aberta em navegador não pode ser separada das demais abas pelo processo; portanto, não selecione o navegador como fonte de áudio se ele estiver reproduzindo Discord. A exclusão do Discord **não está garantida** até haver teste em máquinas reais.
+No motor C++ atual, ao compartilhar **um monitor**, marque os aplicativos permitidos para misturar somente o áudio deles. Ao escolher uma janela, a lista de monitor não se aplica: o processo da janela e seus subprocessos são usados automaticamente. Chrome, jogos e outros aplicativos identificados são permitidos; Discord e GoLive permanecem excluídos. Nenhum dispositivo de microfone é aberto. Navegadores podem incluir áudio de outras abas e janelas do mesmo aplicativo; a API não separa páginas que compartilham o processo de áudio. Uma chamada Discord dentro do Chrome não pode ser separada de outros sons do Chrome por esta API. Não é usado áudio agregado do monitor. A validação de exclusão com o Discord real tocando simultaneamente continua pendente. No Windows 10 2004 ou posterior, o app tenta iniciar a captura de áudio da janela; se a API não funcionar naquela instalação, mostra o erro e mantém o vídeo sem áudio. Na recepção Linux, áudio Opus é reproduzido pelo Chromium; transmissão Linux continua desabilitada. Uma aba do Discord aberta em navegador não pode ser separada das demais abas pelo processo; portanto, não selecione o navegador como fonte de áudio se ele estiver reproduzindo Discord. A exclusão do Discord **não está garantida** até haver teste em máquinas reais.
 
 A [documentação da Microsoft sobre `AUDIOCLIENT_PROCESS_LOOPBACK_PARAMS`](https://learn.microsoft.com/en-us/windows/win32/api/audioclientactivationparams/ns-audioclientactivationparams-audioclient_process_loopback_params) especifica como requisito mínimo o build 20348. Porém, o [projeto `win-capture-audio` do OBS](https://github.com/bozbez/win-capture-audio) relata que a mesma API também funciona em instalações atualizadas do Windows 10 2004 ou posterior. Por isso o app faz a tentativa real de inicialização nessas versões, em vez de rejeitá-las pelo número do build. A documentação oficial não garante esse funcionamento; o app não usa loopback agregado como substituto.
 
@@ -90,9 +90,9 @@ No Windows 10, o Windows Graphics Capture usado pelo Chromium desenha uma borda 
 - `src/shared`: protocolo validado com Zod.
 - `src/services/tailscale`: consulta à CLI oficial e descoberta opcional de hosts conhecidos.
 - `src/services/signaling`: sala única, limite de cinco sessões, IDs e tokens aleatórios, retomada temporária e roteamento das mensagens pelo socket autenticado.
-- `src/services/webrtc`: uma RTCPeerConnection por espectador, ICE sem STUN/TURN e H.264 preferido quando disponível.
+- `src/services/webrtc`: ponte IPC tipada para o motor C++ no Windows; receptor Chromium no Linux. Uma conexão independente por espectador, sem STUN/TURN.
 - `src/services/stats`: getStats por peer a cada 2,5 segundos.
-- `native/windows`: helper C++ baseado na API oficial de áudio por processo do Windows. PCM é entregue diretamente a um AudioWorklet, que cria a track enviada pelo WebRTC.
+- `native/windows`: motor C++ de captura, H.264/Opus, WebRTC, áudio exclusivo por processo, estatísticas e decodificação. O auxiliar de áudio antigo permanece no repositório, mas não é o motor atual.
 - `src/main/logs.ts`: log persistente rotativo e exportação por diálogo nativo.
 - `src/main/updater.ts`: atualização do instalador Windows a partir das releases públicas do GitHub.
 - `src/renderer`: interface React, diagnóstico e vídeo direto em `HTMLVideoElement`.

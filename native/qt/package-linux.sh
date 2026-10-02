@@ -3,12 +3,14 @@ set -euo pipefail
 qt_root="$1"
 build="$2"
 stage="release/qt-linux"
-mkdir -p "$stage/native-media/lib/gstreamer-1.0" "$stage/lib" "$stage/plugins/platforms" "$stage/plugins/tls" "$stage/licenses"
+mkdir -p "$stage/native-media/lib/gstreamer-1.0" "$stage/lib" "$stage/plugins/platforms" "$stage/plugins/tls" "$stage/plugins/imageformats" "$stage/licenses"
 cp "$build/GoLive P2P" "$stage/GoLive P2P"
 cp "$build/media-engine" "$stage/native-media/"
 for module in Core Gui Widgets Network WebSockets; do cp -L "$qt_root/lib/libQt6${module}.so.6" "$stage/lib/"; done
 cp "$qt_root/plugins/platforms/libqxcb.so" "$qt_root/plugins/platforms/libqoffscreen.so" "$stage/plugins/platforms/"
 cp "$qt_root/plugins/tls/"*.so "$stage/plugins/tls/"
+# The engine sends JPEG frames over IPC; Qt's JPEG decoder is a runtime plugin.
+cp "$qt_root/plugins/imageformats/libqjpeg.so" "$stage/plugins/imageformats/"
 # GStreamer loads plugins dynamically. Bundle the distro plugin set and resolve
 # dependencies of those plugins as well as the executable (not just ldd of UI).
 cp /usr/lib/x86_64-linux-gnu/gstreamer-1.0/*.so "$stage/native-media/lib/gstreamer-1.0/"

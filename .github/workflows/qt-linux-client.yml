@@ -38,8 +38,9 @@ jobs:
           export QT_ROOT="$RUNNER_TEMP/qt/6.8.3/gcc_64"
           bash native/qt/package-linux.sh "$QT_ROOT" work/qt-linux
           env LD_LIBRARY_PATH="$PWD/release/qt-linux/lib" GST_PLUGIN_PATH="$PWD/release/qt-linux/native-media/lib/gstreamer-1.0" GST_PLUGIN_SYSTEM_PATH="$PWD/release/qt-linux/native-media/lib/gstreamer-1.0" GST_PLUGIN_SCANNER="$PWD/release/qt-linux/native-media/gst-plugin-scanner" GST_REGISTRY="$PWD/work/qt-linux/srtp-registry.bin" work/qt-linux/srtp-runtime-test > work/qt-linux/packaged-srtp.json
-          env -u LD_LIBRARY_PATH xvfb-run -a release/qt-linux/golive --duration=3 --report=work/qt-linux/packaged-smoke.json
+          env -u LD_LIBRARY_PATH xvfb-run -a release/qt-linux/golive --jpeg-test --duration=3 --report=work/qt-linux/packaged-smoke.json
           test -s work/qt-linux/packaged-smoke.json
+          python -c "import json; v=json.load(open('work/qt-linux/packaged-smoke.json')); assert v['jpegTestPassed'] and v['displayedFrames']==1, v"
       - uses: actions/upload-artifact@v4
         with:
           name: qt-linux-client
@@ -88,7 +89,7 @@ jobs:
           rpmlint release/*.rpm > work/rpmlint.txt 2>&1 || true
           Xvfb :99 -screen 0 1280x800x24 > work/xvfb.log 2>&1 &
           sleep 2
-          env -u LD_LIBRARY_PATH DISPLAY=:99 golive-p2p --duration=4 --report=work/rpm-smoke.json
+          env -u LD_LIBRARY_PATH DISPLAY=:99 golive-p2p --jpeg-test --duration=4 --report=work/rpm-smoke.json
           # Exercise real encrypted RTP with only the installed private runtime.
           # A startup smoke test cannot detect missing dlopen NSS modules.
           chmod +x work/qt-client/work/qt-linux/srtp-runtime-test
@@ -97,6 +98,7 @@ jobs:
           import json
           v=json.load(open('work/rpm-smoke.json'))
           assert v['ui']=='Qt Widgets' and 'Motor C++ pronto' in v['logs'],v
+          assert v['jpegTestPassed'] and v['displayedFrames']==1,v
           print('Installed Fedora RPM started Qt UI and native engine successfully')
           PY
           # Verify removal leaves no application executable or menu entry.

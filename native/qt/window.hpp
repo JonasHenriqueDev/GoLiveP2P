@@ -66,6 +66,7 @@ class MainWindow : public QMainWindow {
   double lastAudioRms = 0;
   bool audioActive = false;
   bool fullscreenTestPassed = false;
+  bool jpegTestPassed = false;
   bool pipTestPassed = false, liveChangeTestPassed = false;
   int liveChanges = 0, offersSent = 0;
   void log(const QString&);

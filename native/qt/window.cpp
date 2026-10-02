@@ -26,6 +26,7 @@
 #include <QRegularExpression>
 #include <QDir>
 #include <QMenu>
+#include <QBuffer>
 #include <QCloseEvent>
 #ifdef Q_OS_WIN
 #include <windows.h>
@@ -996,6 +997,7 @@ void MainWindow::report() {
                                          {"previewFrames", double(previewFrames)},
                                          {"audioActive", audioActive},
                                          {"fullscreenTestPassed", fullscreenTestPassed},
+                                         {"jpegTestPassed", jpegTestPassed},
                                          {"audioRms", lastAudioRms},
                                          {"stats", lastStats},
                                          {"samples", statsSamples},
@@ -1010,6 +1012,19 @@ void MainWindow::automate(const QStringList& args) {
   };
   testReport = value("--report");
   testSource = value("--source");
+  if (args.contains("--jpeg-test")) {
+    QImage source(64, 64, QImage::Format_RGB32);
+    source.fill(QColor("#23a55a"));
+    QByteArray bytes;
+    QBuffer output(&bytes);
+    output.open(QIODevice::WriteOnly);
+    const auto before = video->frames;
+    const bool encoded = source.save(&output, "JPEG");
+    video->frame(bytes);
+    jpegTestPassed = encoded && video->frames == before + 1;
+    log(jpegTestPassed ? "Teste JPEG do aplicativo empacotado passou"
+                       : "Falha no suporte JPEG da interface Qt");
+  }
   if (args.contains("--fullscreen-test")) {
     auto timer = new QTimer(this);
     timer->setInterval(250);

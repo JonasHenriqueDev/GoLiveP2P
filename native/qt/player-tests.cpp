@@ -2,9 +2,28 @@
 #include "video.hpp"
 #include <QtTest>
 #include <QMouseEvent>
+#include <QBuffer>
 class PlayerTests : public QObject {
   Q_OBJECT
  private slots:
+  void jpegPresentation() {
+    VideoView view;
+    view.resize(640, 360);
+    view.show();
+    QImage source(64, 64, QImage::Format_RGB32);
+    source.fill(QColor("#23a55a"));
+    QByteArray bytes;
+    QBuffer output(&bytes);
+    QVERIFY(output.open(QIODevice::WriteOnly));
+    QVERIFY(source.save(&output, "JPEG"));
+    view.frame(bytes);
+    QCOMPARE(view.frames, quint64(1));
+    const auto shown = view.grab().toImage().pixelColor(view.rect().center());
+    QVERIFY(qAbs(shown.green() - 165) < 6);
+    QVERIFY(qAbs(shown.red() - 35) < 6);
+    view.frame("invalid JPEG");
+    QCOMPARE(view.frames, quint64(1));
+  }
   void presentationAndIdleControls() {
     QWidget host;
     auto layout = new QVBoxLayout(&host);

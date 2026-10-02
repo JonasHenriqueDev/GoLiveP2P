@@ -6,7 +6,7 @@ Compartilhamento de janela ou monitor com até cinco participantes pela mesma ta
 
 A versão Qt está disponível como **pré-release experimental**, com instalador Windows completo, cliente Linux de recepção e checksums SHA-256 na [release v0.6.0-qt.4](https://github.com/JonasHenriqueDev/GoLiveP2P/releases/tag/v0.6.0-qt.4). Não anuncia conclusão de todos os critérios de mídia. Consulte [resultados reais e limites](docs/qt-validation.md).
 
-A 0.6.0-qt.4 corrige uma falha de empacotamento que deixava o Fedora conectado sem vídeo: faltavam módulos criptográficos NSS usados pelo SRTP. A falha foi reproduzida e a recepção de vídeo foi retestada com o pacote corrigido em Fedora/Docker. [Diagnóstico, testes e limites](docs/fedora-video-qt4.md).
+A 0.6.0-qt.4 corrige duas falhas de empacotamento que deixavam o Fedora conectado sem vídeo: faltavam módulos criptográficos NSS usados pelo SRTP e o plugin JPEG do Qt. As falhas foram reproduzidas; sala, sinalização, vídeo apresentado e tela cheia foram retestados no aplicativo completo em Fedora/Docker. [Diagnóstico, testes e limites](docs/fedora-video-qt4.md).
 
 Windows: execute o instalador EXE. As DLLs Qt, o runtime C++, os executáveis de captura e as bibliotecas de mídia são incluídos. Não é necessário instalar Qt, Visual Studio, Node ou GStreamer para usar. A primeira troca da versão Electron para Qt exige instalar esse EXE; o pacote Qt instala em diretório separado. Feche o GoLive anterior para liberar a porta da sala. Linux: extraia o pacote `linux-x64.tar.gz` e execute `golive`; essa etapa é exclusivamente cliente de recepção.
 

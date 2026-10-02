@@ -14,6 +14,8 @@ Com esse runtime completo, a repetição entregou centenas de JPEGs de vídeo de
 
 ## Proteção contra regressão
 
+Uma segunda ausência foi encontrada antes de publicar a qt.4: `plugins/imageformats/libqjpeg.so`. O motor entrega JPEG pelo IPC e `VideoView` usa o decoder Qt; obter JPEG no motor não comprova exibi-lo no aplicativo. O plugin JPEG e suas dependências agora são incluídos. O teste `jpegPresentation` verifica pixels apresentados e recusa JPEG inválido. O teste `--jpeg-test` do aplicativo empacotado também verifica o plugin real: em Fedora/Xvfb, removê-lo da pasta de plugins produziu zero quadros; restaurá-lo produziu um quadro e passou. Apenas renomear o arquivo dentro da pasta não remove o plugin, pois o loader Qt ainda o encontra.
+
 `native/windows/srtp-runtime-test.cpp` executa Opus/RTP → SRTP criptografado → RTP autenticado/decifrado → áudio decodificado. A chave fixa é exclusivamente material público de teste. Em Fedora 44 com bibliotecas privadas:
 
 - Módulos NSS ausentes: falhou, **zero pacotes** decodificados.
@@ -22,6 +24,10 @@ Com esse runtime completo, a repetição entregou centenas de JPEGs de vídeo de
 O CI agora executa esse teste com o runtime empacotado e novamente com o RPM realmente instalado no Fedora, além da inicialização Qt, verificação e remoção do pacote. Os avisos/licenças NSS/NSPR são incluídos.
 
 O run final `37056693735`, código `79ddbcd4424605bcaeb3a0a46411084472ab43c7`, passou nos seis grupos de testes Linux, no teste SRTP portátil e no teste SRTP do RPM instalado (51 pacotes). A repetição direta Windows → Fedora/Docker com o tarball final qt.4 decodificou 992 frames 1920×1080 e enviou centenas de JPEGs ao consumidor IPC; o SRTP registrou 3.912 pacotes recebidos e zero descartados. Os artefatos e suas somas SHA-256 foram conferidos.
+
+Esse primeiro build SRTP foi substituído antes da publicação pelo código `b9e7d92ead3908a12851c3f9ed38d4cd6fad266b`, CI `37058230114`, que inclui também JPEG. Os seis grupos Linux e os testes SRTP/JPEG do tarball e do RPM instalado passaram. O RPM abriu Qt e motor, apresentou um quadro de teste, decifrou 51 pacotes e passou em `rpm -V`/remoção.
+
+Integração completa do tarball final: duas interfaces Qt, sala/WebSocket, motores nativos e mídia Windows → Fedora 44/Docker/Xvfb. O cliente apresentou **646 quadros**, decodificou 1.179 frames 1920×1080, passou em duplo clique/tela cheia e registrou 4.149 pacotes SRTP sem descartes. A captura de tela foi inspecionada e mostrou a janela verde de teste. O comando `tailscale status` no container foi substituído por uma fixture local para habilitar o cliente; a conexão ao Windows usou a rede Docker/Windows. **Não é validação de dois dispositivos reais na tailnet.** O áudio virtual permaneceu limitado (139.200 frames decodificados), sem comprovar continuidade audível.
 
 Windows qt.4: lint, build/testes Qt, análise MSVC e conferência dos 868 arquivos do instalador extraído/instalado passaram. Um teste Qt Windows de áudio em paralelo ao teste Docker registrou 14 underflows de captura; esse cenário **não passou** como teste de continuidade. Não deve ser apresentado como áudio validado sob carga concorrente.
 

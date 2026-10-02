@@ -1,6 +1,19 @@
 # Fedora RPM
 
-## Resultado executado — 2026-10-02
+## Pacote atual — 0.6.0-qt.4
+
+O workflow `.github/workflows/qt-linux-client.yml` compila o cliente e empacota o RPM a partir do artefato **do mesmo run**, conferido por SHA-256. Não reutiliza a versão qt.1. A qt.4 inclui os módulos NSS necessários para decifrar SRTP; o CI 37056693735 passou em seis grupos CTest Linux, no teste criptográfico do runtime portátil e no teste do RPM instalado em Fedora 44. O último decifrou/decodificou 51 pacotes de áudio. Também passou em instalação, `rpm -V`, inicialização Qt/motor e remoção. A reprodução no Fedora físico do usuário segue pendente.
+
+O rpmlint atual registrou 1.274 erros e 42 avisos, relacionados às bibliotecas privadas e metadados: continua sendo instalador externo experimental, sem conformidade completa com um repositório oficial Fedora.
+
+```bash
+sudo dnf install ./GoLive-P2P-0.6.0-qt.4-fedora-x86_64.rpm
+golive-p2p
+```
+
+Feche o cliente anterior antes de atualizar. Atualização Linux é manual. [Falha reproduzida e correção](fedora-video-qt4.md).
+
+## Histórico qt.1 — resultado executado em 2026-10-02
 
 CI Fedora Linux 44 (Container Image), run 36968865268: RPM gerado, instalado por `dnf install` sem desativar verificações, arquivos aprovados por `rpm -V`, launcher/menu validados e aplicativo Qt/motor nativo abertos sob Xvfb. Desinstalação por DNF removeu `/opt/golive-p2p`, launcher e desktop entry. GUI executada no usuário root do container; o desktop/som do Fedora físico do usuário não foi testado neste cenário.
 
@@ -25,4 +38,4 @@ sudo dnf remove golive-p2p
 
 Atualizações Linux são manuais nesta etapa: instalar o próximo RPM pelo DNF atualizará o mesmo pacote. O instalador continua exclusivamente cliente de recepção. A auditoria completa das dependências/licenças e o teste de áudio/vídeo no Fedora físico do usuário permanecem pendentes; o RPM mantém as licenças/avisos do pacote portátil sem atribuir uma nova licença ao projeto.
 
-Desenvolvimento: em Fedora com `rpm-build` e `desktop-file-utils`, execute `bash native/qt/linux/build-rpm.sh CAMINHO_DO_TARBALL`. O CI `.github/workflows/qt-fedora-rpm.yml` confere o tarball, compila o RPM em Fedora 44, instala via DNF, verifica arquivos com `rpm -V`, valida o desktop entry, abre o Qt/motor nativo sob Xvfb e verifica a desinstalação. O lint é registrado para inspeção; avisos próprios de bibliotecas privadas e de um instalador externo não são anunciados como conformidade com o repositório Fedora.
+Desenvolvimento: em Fedora com `rpm-build` e `desktop-file-utils`, execute `bash native/qt/linux/build-rpm.sh CAMINHO_DO_TARBALL`. O workflow atual é `.github/workflows/qt-linux-client.yml`; o workflow RPM separado usado originalmente na qt.1 foi substituído. O lint é registrado para inspeção; avisos próprios de bibliotecas privadas e de um instalador externo não são anunciados como conformidade com o repositório Fedora.

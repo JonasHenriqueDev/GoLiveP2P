@@ -1,16 +1,18 @@
 # GoLive P2P
 
-Compartilhamento de janela ou monitor com até cinco participantes pela mesma tailnet Tailscale. A versão `0.6.0-qt.3` usa **somente Qt Widgets + C++ na interface**, com captura, áudio e WebRTC no motor nativo C++. Electron, React e TypeScript foram retirados do aplicativo e do build de produção. As versões anteriores permanecem no histórico do Git.
+Compartilhamento de janela ou monitor com até cinco participantes pela mesma tailnet Tailscale. A versão `0.6.0-qt.4` usa **somente Qt Widgets + C++ na interface**, com captura, áudio e WebRTC no motor nativo C++. Electron, React e TypeScript foram retirados do aplicativo e do build de produção. As versões anteriores permanecem no histórico do Git.
 
 ## Downloads e instalação
 
-A versão Qt está disponível como **pré-release experimental**, com instalador Windows completo, cliente Linux de recepção e checksums SHA-256 na [release v0.6.0-qt.3](https://github.com/JonasHenriqueDev/GoLiveP2P/releases/tag/v0.6.0-qt.3). Não anuncia conclusão de todos os critérios de mídia. Consulte [resultados reais e limites](docs/qt-validation.md).
+A versão Qt está disponível como **pré-release experimental**, com instalador Windows completo, cliente Linux de recepção e checksums SHA-256 na [release v0.6.0-qt.4](https://github.com/JonasHenriqueDev/GoLiveP2P/releases/tag/v0.6.0-qt.4). Não anuncia conclusão de todos os critérios de mídia. Consulte [resultados reais e limites](docs/qt-validation.md).
+
+A 0.6.0-qt.4 corrige uma falha de empacotamento que deixava o Fedora conectado sem vídeo: faltavam módulos criptográficos NSS usados pelo SRTP. A falha foi reproduzida e a recepção de vídeo foi retestada com o pacote corrigido em Fedora/Docker. [Diagnóstico, testes e limites](docs/fedora-video-qt4.md).
 
 Windows: execute o instalador EXE. As DLLs Qt, o runtime C++, os executáveis de captura e as bibliotecas de mídia são incluídos. Não é necessário instalar Qt, Visual Studio, Node ou GStreamer para usar. A primeira troca da versão Electron para Qt exige instalar esse EXE; o pacote Qt instala em diretório separado. Feche o GoLive anterior para liberar a porta da sala. Linux: extraia o pacote `linux-x64.tar.gz` e execute `golive`; essa etapa é exclusivamente cliente de recepção.
 
 O **Tailscale deve estar instalado, autenticado e conectado separadamente** em cada computador. GoLive não exige servidor central de mídia, IP público, abertura de portas no roteador, STUN ou TURN. ACLs/firewall precisam permitir TCP 47621 até o host e UDP entre os participantes.
 
-Fedora: também há [instalador RPM](https://github.com/JonasHenriqueDev/GoLiveP2P/releases/download/v0.6.0-qt.3/GoLive-P2P-0.6.0-qt.3-fedora-x86_64.rpm), com entrada no menu e bibliotecas incluídas. Na pasta do download, execute `sudo dnf install ./GoLive-P2P-0.6.0-qt.3-fedora-x86_64.rpm`; depois abra **GoLive P2P** no menu ou execute `golive-p2p`. [Instalação, remoção e validação do RPM](docs/linux-rpm.md).
+Fedora: também há [instalador RPM](https://github.com/JonasHenriqueDev/GoLiveP2P/releases/download/v0.6.0-qt.4/GoLive-P2P-0.6.0-qt.4-fedora-x86_64.rpm), com entrada no menu e bibliotecas incluídas. Na pasta do download, execute `sudo dnf install ./GoLive-P2P-0.6.0-qt.4-fedora-x86_64.rpm`; depois abra **GoLive P2P** no menu ou execute `golive-p2p`. [Instalação, remoção e validação do RPM](docs/linux-rpm.md).
 
 ## Uso
 

@@ -860,9 +860,9 @@ void MainWindow::collect() {
     const auto audio = lastStats["audio"].toObject();
     if (transmitting) lastAudioRms = audio["rms"].toDouble();
     const auto peers = lastStats["peers"].toObject();
-    const auto now = QDateTime::currentMSecsSinceEpoch();
-    if (now - lastAudioDiagnostic >= 5000) {
-      lastAudioDiagnostic = now;
+    const auto diagnosticNow = QDateTime::currentMSecsSinceEpoch();
+    if (diagnosticNow - lastAudioDiagnostic >= 5000) {
+      lastAudioDiagnostic = diagnosticNow;
       QJsonObject diagnostic{{"capture", audio}};
       QJsonObject reception;
       for (auto it = peers.begin(); it != peers.end(); ++it)

@@ -4,7 +4,7 @@
 
 O workflow `.github/workflows/qt-linux-client.yml` compila o cliente e empacota o RPM a partir do artefato **do mesmo run**, conferido por SHA-256. Não reutiliza a versão qt.1. A qt.4 inclui os módulos NSS necessários para decifrar SRTP; o CI 37056693735 passou em seis grupos CTest Linux, no teste criptográfico do runtime portátil e no teste do RPM instalado em Fedora 44. O último decifrou/decodificou 51 pacotes de áudio. Também passou em instalação, `rpm -V`, inicialização Qt/motor e remoção. A reprodução no Fedora físico do usuário segue pendente.
 
-O rpmlint atual registrou 1.274 erros e 42 avisos, relacionados às bibliotecas privadas e metadados: continua sendo instalador externo experimental, sem conformidade completa com um repositório oficial Fedora.
+O rpmlint atual registrou 1.277 erros e 42 avisos, relacionados às bibliotecas privadas e metadados: continua sendo instalador externo experimental, sem conformidade completa com um repositório oficial Fedora.
 
 Antes de publicar, o build foi substituído pelo run `37058230114` para incluir também o plugin JPEG do Qt. O tarball e o RPM instalado passaram em exibição de JPEG e SRTP real, além dos seis grupos CTest. Uma integração completa Windows → cliente Qt Fedora em Docker apresentou 646 quadros e validou tela cheia; não substitui o teste físico na tailnet.
 

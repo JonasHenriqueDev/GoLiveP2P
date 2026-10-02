@@ -22,7 +22,7 @@ $crt=Get-ChildItem "$vs/VC/Redist/MSVC" -Directory | Sort-Object Name -Descendin
 if(!$crt){throw 'Redistributable MSVC x64 DLLs were not found'}
 Get-ChildItem $crt.FullName -Filter '*.dll' | Copy-Item -Destination $stage -Force
 New-Item -ItemType Directory -Force "$stage/licenses" | Out-Null
-Get-ChildItem "$PSScriptRoot/licenses" -File | Copy-Item -Destination "$stage/licenses" -Force
+Get-ChildItem "$PSScriptRoot/licenses" | Copy-Item -Destination "$stage/licenses" -Recurse -Force
 New-Item -ItemType Directory -Force (Join-Path $stage 'native-media') | Out-Null
 Get-ChildItem (Join-Path $repo 'native/windows/runtime') | Copy-Item -Destination (Join-Path $stage 'native-media') -Recurse -Force
 Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'THIRD-PARTY.md') -Destination $stage -Force

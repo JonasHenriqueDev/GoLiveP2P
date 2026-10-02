@@ -928,7 +928,8 @@ void MainWindow::automate(const QStringList& args) {
       if (video->frames < 30) return;
       timer->stop();
       QMouseEvent event(QEvent::MouseButtonDblClick, QPointF(video->rect().center()),
-                        Qt::LeftButton, Qt::LeftButton, Qt::NoModifier);
+                        QPointF(video->mapToGlobal(video->rect().center())), Qt::LeftButton,
+                        Qt::LeftButton, Qt::NoModifier);
       QApplication::sendEvent(video, &event);
       const bool entered = isFullScreen();
       QTimer::singleShot(600, this, [this, entered] {
@@ -936,7 +937,8 @@ void MainWindow::automate(const QStringList& args) {
           QGuiApplication::primaryScreen()->grabWindow(winId()).save(testReport +
                                                                      ".fullscreen.png");
         QMouseEvent second(QEvent::MouseButtonDblClick, QPointF(video->rect().center()),
-                           Qt::LeftButton, Qt::LeftButton, Qt::NoModifier);
+                           QPointF(video->mapToGlobal(video->rect().center())), Qt::LeftButton,
+                           Qt::LeftButton, Qt::NoModifier);
         QApplication::sendEvent(video, &second);
         fullscreenTestPassed = entered && !isFullScreen();
         log(fullscreenTestPassed ? "Teste de duplo clique/tela cheia passou"

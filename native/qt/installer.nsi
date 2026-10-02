@@ -22,11 +22,13 @@ Section "GoLive P2P"
   WriteRegStr HKCU "Software\GoLiveP2P\Qt" "InstallDir" "$INSTDIR"
   WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\GoLiveP2PQt" "DisplayName" "GoLive P2P (Qt)"
   WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\GoLiveP2PQt" "DisplayVersion" "0.6.0-qt.1"
-  WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\GoLiveP2PQt" "UninstallString" '$"$INSTDIR\Uninstall.exe$"'
+  WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\GoLiveP2PQt" "UninstallString" '"$INSTDIR\Uninstall.exe"'
   CreateShortcut "$DESKTOP\GoLive P2P.lnk" "$INSTDIR\GoLive P2P.exe"
   CreateDirectory "$SMPROGRAMS\GoLive P2P"
   CreateShortcut "$SMPROGRAMS\GoLive P2P\GoLive P2P.lnk" "$INSTDIR\GoLive P2P.exe"
   CreateShortcut "$SMPROGRAMS\GoLive P2P\Desinstalar.lnk" "$INSTDIR\Uninstall.exe"
+  IfSilent 0 +2
+    Exec '"$INSTDIR\GoLive P2P.exe"'
 SectionEnd
 Section "Uninstall"
   Delete "$DESKTOP\GoLive P2P.lnk"

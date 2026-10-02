@@ -12,7 +12,7 @@ try{
  for(let i=0;i<30;++i){await wait(200);handle=execFileSync('powershell.exe',['-NoProfile','-Command',`(Get-Process -Id ${fixture.pid}).MainWindowHandle.ToInt64()`],{windowsHide:true,encoding:'utf8'}).trim();if(handle!=='0')break;}
  if(!handle || handle==='0')throw Error('Fixture window unavailable');
  const ip=execFileSync('C:/Program Files/Tailscale/tailscale.exe',['ip','-4'],{windowsHide:true,encoding:'utf8'}).trim();
- const exe=resolve('release/qt-unpacked/GoLive P2P.exe'),host=join(work,'host.json'),viewer=join(work,'viewer.json');
+ const exe=resolve(process.argv.find(a=>a.startsWith('--exe='))?.slice(6)||'release/qt-unpacked/GoLive P2P.exe'),host=join(work,'host.json'),viewer=join(work,'viewer.json');
  const h=child(exe,['--host','--port=47622','--source=window:'+handle,'--report='+host,'--duration=38'],'host');
  let ready=false;for(let i=0;i<80;++i){await wait(250);try{const v=await(await fetch(`http://${ip}:47622/discover`,{signal:AbortSignal.timeout(700)})).json();if(v.app==='golive-p2p'){ready=true;break;}}catch{}}
  if(!ready)throw Error('Qt host room did not open');

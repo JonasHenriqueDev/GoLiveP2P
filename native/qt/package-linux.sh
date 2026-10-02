@@ -31,6 +31,7 @@ while todo:
     if 'not found' in result.stdout: raise SystemExit(result.stdout)
 PY
 cp native/qt/THIRD-PARTY.md "$stage/licenses/"
+cp -r native/qt/licenses "$stage/licenses/qt"
 # Include the distro copyright files for the bundled multimedia packages.
 for folder in /usr/share/doc/libqt* /usr/share/doc/libgst* /usr/share/doc/gstreamer* /usr/share/doc/libav* /usr/share/doc/libnice*; do
   if [ -f "$folder/copyright" ]; then cp "$folder/copyright" "$stage/licenses/$(basename "$folder")-copyright"; fi

@@ -2,9 +2,9 @@
 
 ## Estado
 
-O upstream clonado em 2026-10-01 estava em `3dfae85` e não continha este documento. A sessão anterior havia descrito um processo C++ separado, mas seu documento não foi publicado no remoto. A implementação nesta cópia mantém Electron/React/TypeScript para sala, sinalização, atualização e interface; o processo C++ assume captura, áudio, H.264/Opus, WebRTC, decodificação e medição. Não há servidor de mídia.
+O upstream clonado em 2026-10-01 estava em `3dfae85` e não continha este documento. A sessão anterior havia descrito um processo C++ separado, mas seu documento não foi publicado no remoto. A solicitação posterior de 2026-10-02 mudou o escopo: a implementação atual usa somente Qt Widgets + C++ para sala, sinalização, atualização e interface; o processo C++ assume captura, áudio, H.264/Opus, WebRTC, decodificação e medição. Não há servidor de mídia.
 
-Não confundir o build de desenvolvimento `0.5.0-native.1` com uma migração validada para release. Os testes e bloqueios constam em `native-validation.md`.
+Não confundir o build de desenvolvimento `0.5.0-native.1` com uma migração validada para release. Os testes anteriores constam em `native-validation.md`; resultados da migração Qt estão em `qt-validation.md`.
 
 ## Bibliotecas escolhidas
 
@@ -24,7 +24,7 @@ Este programa é separado do build/instalador. Ele usa headers GPL do download o
 
 Resultados reais e limitações estão em [native-validation.md](native-validation.md): BitBlt capturou a fixture GDI, mas perdeu o conteúdo do Chrome; game capture não produziu conteúdo para a fixture. WGC do OBS verifica a mesma propriedade WinRT de controle de borda que não está disponível no build 19045 desta máquina. **libobs não foi incorporada como solução universal sem borda após esses testes.**
 
-GStreamer é dinamicamente ligado. O pacote inclui DLLs, plugins, scanner, inventário de hashes e licenças do SDK. A presença das licenças não substitui a revisão das obrigações de redistribuição. O SDK completo contém componentes opcionais GPL; a release está bloqueada até concluir essa revisão e eliminar dependências dispensáveis. A versão está fixada para reproduzir os testes; atualizar o SDK requer repetir os testes.
+GStreamer é dinamicamente ligado. O pacote inclui DLLs, plugins, scanner, inventário de hashes e licenças do SDK. A presença das licenças não substitui a revisão das obrigações de redistribuição. O SDK completo contém componentes opcionais GPL; a conclusão da migração e uma release estável permanecem bloqueadas até concluir essa revisão e eliminar dependências dispensáveis. Pré-releases experimentais identificam essa limitação explicitamente. A versão está fixada para reproduzir os testes; atualizar o SDK requer repetir os testes.
 
 ## Captura, codificação e apresentação
 
@@ -34,9 +34,9 @@ GStreamer é dinamicamente ligado. O pacote inclui DLLs, plugins, scanner, inven
 - Não há fallback silencioso para GDI/BitBlt nem promessa de equivalência para janelas cobertas.
 - O Windows 10 pode manter a borda WGC. `show-border=false` é solicitado; não é prova de que o sistema a removeu. O controle documentado do plugin depende de Windows 11. Não há bypass implementado para Windows 10.
 - H.264 usa NVENC D3D11 quando disponível e OpenH264 em CPU quando explicitamente escolhido ou se o hardware falhar. Adaptadores AMD/Intel usam o fallback funcional por enquanto; Media Foundation/QSV não foram integrados como aceleradores sem testes.
-- Há uma captura/encode compartilhada e uma pipeline RTP/DTLS/SRTP/ICE independente por receptor, limitada a quatro receptores. Sem STUN/TURN. A qualidade e o teto de bitrate são aplicados ao encoder compartilhado; não há controlador de congestionamento independente por receptor concluído. Essa diferença em relação ao Chromium precisa ser resolvida antes da release.
+- Há uma captura/encode compartilhada e uma pipeline RTP/DTLS/SRTP/ICE independente por receptor, limitada a quatro receptores. Sem STUN/TURN. A qualidade e o teto de bitrate são aplicados ao encoder compartilhado; não há controlador de congestionamento independente por receptor concluído. Essa diferença em relação ao Chromium precisa ser resolvida antes de declarar a migração completa.
 - O encoder entrega SPS/PPS em keyframes e fornece um keyframe inicial aos peers novos. Caps RTP são negociadas antes de criar SDP.
-- Prévia local JPEG de até 15 FPS e apresentação remota JPEG de até 30 FPS via IPC, separadas do fluxo de rede que pode ser 60 FPS. A decodificação é nativa; o Electron apresenta imagens e mantém layout responsivo. Esse caminho de apresentação tem custo adicional e não equivale a renderização direta de textura D3D11 em 60 FPS. Medir antes de anunciar latência baixa.
+- Prévia local JPEG de até 15 FPS e apresentação remota JPEG de até 30 FPS via IPC, separadas do fluxo de rede que pode ser 60 FPS. A decodificação é nativa; o Qt apresenta imagens e mantém layout responsivo. Esse caminho de apresentação tem custo adicional e não equivale a renderização direta de textura D3D11 em 60 FPS. Medir antes de anunciar latência baixa.
 - Áudio recebido é decodificado no motor e reproduzido por WASAPI. O medidor RMS não é uma prova de isolamento entre aplicativos.
 
 ## Áudio e política de atribuição
@@ -51,7 +51,7 @@ Limites: listas por nome/caminho não identificam por si só todos os aplicativo
 
 ## IPC e ciclo de vida
 
-`stdin/stdout` privados do child process transportam NDJSON versão 1. `stderr` é reservado aos logs das bibliotecas. Zod valida pedidos, eventos e resultados no preload/main. O motor recusa métodos desconhecidos, limites de qualidade, fontes inválidas, SDP/candidatos excessivos e linhas maiores que 1 MiB. O supervisor limita respostas a 3 MB, fila a 128 pedidos, tem deadline de startup e de pedido e rejeita pendências ao encerrar. Nenhuma string arbitrária de pipeline sai da interface.
+`stdin/stdout` privados do child process transportam NDJSON versão 1. `stderr` é reservado aos logs das bibliotecas. Tipos C++ e validadores de QJson em native/qt/protocol.cpp validam pedidos, eventos e resultados; native/qt/engine.cpp supervisiona o QProcess. O motor também valida cada pedido. O motor recusa métodos desconhecidos, limites de qualidade, fontes inválidas, SDP/candidatos excessivos e linhas maiores que 1 MiB. O supervisor limita respostas a 3 MB, fila a 128 pedidos, tem deadline de startup e de pedido e rejeita pendências ao encerrar. Nenhuma string arbitrária de pipeline sai da interface.
 
 Métodos: `capabilities`, `sources`, `audio-sessions`, `start`, `offer`, `signal`, `remove`, `stop`, `bitrate`, `stats`. Eventos: `ready`, `signal`, `state`, `frame`, `audio-state`, `warning`, `error`. Os dados de mídia local não entram no WebSocket. O servidor existente valida a sinalização e só aceita ofertas do transmissor registrado.
 
@@ -61,6 +61,6 @@ EOF pede encerramento; o supervisor finaliza um processo travado após o prazo. 
 
 Windows: Node, PowerShell 7 e MSVC C++/SDK para desenvolver; `npm run native:setup` baixa/extrai o SDK com hashes fixados e compila. `npm run dev` e `npm run build:win` recompilam o motor. Em uma máquina de usuário, o instalador inclui o runtime; não é preciso instalar SDK ou Visual Studio. Tailscale continua requisito separado.
 
-`native/windows/runtime/manifest.json` contém hashes dos arquivos. O instalador NSIS e o updater existentes foram preservados. `scripts/verify-package.mjs` deve conferir arquivos empacotados e hashes. A publicação exige evidências reais em `native-validation.json`; não basta o runner compilar.
+`native/windows/runtime/manifest.json` contém hashes dos arquivos. O instalador NSIS Qt inclui DLLs, auxiliares e licenças. O updater foi reimplementado em C++/Qt Network e confere o digest SHA-256 do asset GitHub. `native/qt/verify-package.mjs` confere cada arquivo do payload. O canal Qt é separado do canal histórico Electron; o primeiro upgrade exige instalação manual. Pré-release experimental não equivale ao aceite completo de mídia.
 
-Linux continua usando o receptor Chromium nesta etapa, com transmissão desabilitada na interface. Um AppImage só deve ser declarado testado depois de build/execução num ambiente Linux disponível.
+Linux agora usa o mesmo cliente Qt e receptor C++/GStreamer, com transmissão desabilitada. O CI Ubuntu 24.04 compila, testa e executa o pacote portátil completo sob Xvfb; isso não valida vídeo/áudio na máquina Fedora do usuário. Não há Electron nem Qt WebEngine no novo pacote.

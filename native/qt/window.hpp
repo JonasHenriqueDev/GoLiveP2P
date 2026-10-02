@@ -73,6 +73,7 @@ class MainWindow : public QMainWindow {
   quint64 previewFrames = 0;
   double lastAudioRms = 0;
   bool audioActive = false;
+  bool fullscreenTestPassed = false;
   void log(const QString&);
   void refreshTailnet();
   void createRoom();

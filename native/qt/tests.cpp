@@ -36,6 +36,32 @@ class Tests : public QObject {
     QVERIFY(!Protocol::client({{"type", "pcm"}, {"data", "audio"}}));
     QVERIFY(!Protocol::client({{"type", "offer"}, {"to", id}, {"sdp", QString(200001, 'x')}}));
   }
+  void results() {
+    QVERIFY(!Protocol::mediaResult("stats", QJsonObject{{"peers", QJsonObject()}}));
+    QVERIFY(!Protocol::mediaResult(
+        "sources",
+        QJsonArray{QJsonObject{{"id", "window:0"}, {"kind", "window"}, {"name", "Invalid"}}}));
+    QVERIFY(Protocol::mediaResult("stop", QJsonValue(QJsonValue::Null)));
+    QVERIFY(!Protocol::mediaResult("stop", QJsonObject()));
+    QVERIFY(!Protocol::mediaEvent({{"v", 2}, {"event", "ready"}, {"protocol", 1}}));
+  }
+  void reconnect() {
+    RoomServer server;
+    QVERIFY(server.listen("127.0.0.1", 0));
+    RoomClient client;
+    QSignalSpy messages(&client, &RoomClient::messageReceived);
+    client.join("127.0.0.1", "Resume", server.port());
+    QTRY_VERIFY(!client.selfId().isEmpty());
+    const auto id = client.selfId();
+    messages.clear();
+    client.reconnect();
+    QTRY_VERIFY_WITH_TIMEOUT(!messages.isEmpty(), 4000);
+    QCOMPARE(client.selfId(), id);
+    QCOMPARE(server.size(), 1);
+    QVERIFY(messages.last()[0].toJsonObject()["resumed"].toBool());
+    client.leave();
+    QTRY_COMPARE(server.size(), 0);
+  }
   void roomRoundtrip() {
     RoomServer server;
     QVERIFY(server.listen("127.0.0.1", 0));

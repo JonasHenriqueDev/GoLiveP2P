@@ -317,6 +317,9 @@ void RoomClient::leave() {
   token.clear();
   self.clear();
 }
+void RoomClient::reconnect() {
+  if (!leaving) socket.abort();
+}
 void RoomClient::send(const QJsonObject& value) {
   if (!Protocol::client(value)) {
     emit error("Pedido de sinalização inválido");

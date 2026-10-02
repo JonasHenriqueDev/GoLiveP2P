@@ -37,6 +37,8 @@ jobs:
         run: |
           export QT_ROOT="$RUNNER_TEMP/qt/6.8.3/gcc_64"
           bash native/qt/package-linux.sh "$QT_ROOT" work/qt-linux
+          env -u LD_LIBRARY_PATH xvfb-run -a release/qt-linux/golive --duration=3 --report=work/qt-linux/packaged-smoke.json
+          test -s work/qt-linux/packaged-smoke.json
       - uses: actions/upload-artifact@v4
         with:
           name: qt-linux-client
@@ -46,4 +48,5 @@ jobs:
             work/qt-linux/qt-tests.txt
             work/qt-linux/ui-smoke.json
             work/qt-linux/engine-smoke.txt
+            work/qt-linux/packaged-smoke.json
           if-no-files-found: error

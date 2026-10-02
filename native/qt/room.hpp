@@ -43,6 +43,7 @@ class RoomClient : public QObject {
   explicit RoomClient(QObject* parent = nullptr);
   void join(const QString& ip, const QString& name, quint16 port = 47621);
   void leave();
+  void reconnect();
   void send(const QJsonObject&);
   QString selfId() const { return self; }
  signals:

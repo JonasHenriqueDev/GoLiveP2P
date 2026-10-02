@@ -288,6 +288,7 @@ MainWindow::MainWindow(const QString& runtime, QWidget* parent)
   });
   connect(&engine, &EngineProcess::ready, this, [this] {
     log("Motor C++ pronto");
+    refreshPeople();
     if (!testSource.isEmpty() && !client.selfId().isEmpty() && !transmitting && !starting)
       startSource(testSource);
   });
@@ -905,6 +906,7 @@ void MainWindow::report() {
                                          {"displayedFrames", double(video->frames)},
                                          {"previewFrames", double(previewFrames)},
                                          {"audioActive", audioActive},
+                                         {"fullscreenTestPassed", fullscreenTestPassed},
                                          {"audioRms", lastAudioRms},
                                          {"stats", lastStats},
                                          {"samples", statsSamples},
@@ -919,6 +921,30 @@ void MainWindow::automate(const QStringList& args) {
   };
   testReport = value("--report");
   testSource = value("--source");
+  if (args.contains("--fullscreen-test")) {
+    auto timer = new QTimer(this);
+    timer->setInterval(250);
+    connect(timer, &QTimer::timeout, this, [this, timer] {
+      if (video->frames < 30) return;
+      timer->stop();
+      QMouseEvent event(QEvent::MouseButtonDblClick, QPointF(video->rect().center()),
+                        Qt::LeftButton, Qt::LeftButton, Qt::NoModifier);
+      QApplication::sendEvent(video, &event);
+      const bool entered = isFullScreen();
+      QTimer::singleShot(600, this, [this, entered] {
+        if (!testReport.isEmpty())
+          QGuiApplication::primaryScreen()->grabWindow(winId()).save(testReport +
+                                                                     ".fullscreen.png");
+        QMouseEvent second(QEvent::MouseButtonDblClick, QPointF(video->rect().center()),
+                           Qt::LeftButton, Qt::LeftButton, Qt::NoModifier);
+        QApplication::sendEvent(video, &second);
+        fullscreenTestPassed = entered && !isFullScreen();
+        log(fullscreenTestPassed ? "Teste de duplo clique/tela cheia passou"
+                                 : "Teste de tela cheia falhou");
+      });
+    });
+    timer->start();
+  }
   bool portValid = false;
   const auto specifiedPort = value("--port").toUInt(&portValid);
   if (portValid && specifiedPort > 0 && specifiedPort <= 65535) roomPort = quint16(specifiedPort);

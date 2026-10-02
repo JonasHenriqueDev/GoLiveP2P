@@ -1,94 +1,21 @@
 {
   "name": "golive-p2p",
-  "version": "0.5.0-native.3",
+  "version": "0.6.0-qt.1",
   "private": true,
   "type": "module",
-  "main": "out/main/index.js",
+  "description": "Native Qt C++ UI and P2P media engine. Node is used only for development checks.",
   "scripts": {
-    "postinstall": "install-electron",
-    "dev": "npm run native:build && electron-vite dev",
-    "build": "npm run build:win",
+    "setup": "pwsh -NoProfile -File native/qt/setup.ps1",
+    "dev": "pwsh -NoProfile -File native/qt/run.ps1",
     "native:setup": "pwsh -NoProfile -File native/windows/setup-sdk.ps1",
     "native:build": "pwsh -NoProfile -File native/windows/build-media.ps1",
-    "native:probe": "node native/windows/probe.mjs",
-    "build:linux": "electron-vite build && electron-builder --linux AppImage --publish never",
-    "typecheck": "tsc --noEmit",
-    "lint": "eslint .",
-    "test": "vitest run",
-    "format": "prettier --write .",
-    "build:win": "npm run native:build && electron-vite build && electron-builder --win nsis --publish never",
-    "build:all": "npm run build:win && npm run build:linux"
-  },
-  "dependencies": {
-    "electron-updater": "^6.8.9",
-    "react": "^19.1.1",
-    "react-dom": "^19.1.1",
-    "ws": "^8.18.3",
-    "zod": "^4.1.11"
-  },
-  "devDependencies": {
-    "@eslint/js": "^9.36.0",
-    "@types/node": "^24.5.2",
-    "@types/react": "^19.1.13",
-    "@types/react-dom": "^19.1.9",
-    "@types/ws": "^8.18.1",
-    "@vitejs/plugin-react": "^4.7.0",
-    "electron": "^44.5.1",
-    "electron-builder": "^26.0.12",
-    "electron-vite": "^5.0.0",
-    "eslint": "^9.36.0",
-    "globals": "^16.4.0",
-    "prettier": "^3.6.2",
-    "typescript": "^5.9.2",
-    "typescript-eslint": "^8.44.1",
-    "vite": "^7.1.7",
-    "vitest": "^5.0.3"
-  },
-  "build": {
-    "appId": "dev.golive.p2p",
-    "productName": "GoLive P2P",
-    "files": [
-      "out/**/*",
-      "package.json"
-    ],
-    "directories": {
-      "output": "release"
-    },
-    "publish": [
-      {
-        "provider": "github",
-        "owner": "JonasHenriqueDev",
-        "repo": "GoLiveP2P"
-      }
-    ],
-    "linux": {
-      "target": [
-        "AppImage"
-      ],
-      "category": "Network"
-    },
-    "win": {
-      "target": [
-        "nsis"
-      ],
-      "artifactName": "GoLive-P2P-Setup-${version}.${ext}",
-      "extraResources": [
-        {
-          "from": "native/windows/bin/audio-capture.exe",
-          "to": "audio-capture.exe"
-        },
-        {
-          "from": "native/windows/runtime",
-          "to": "native-media"
-        }
-      ]
-    },
-    "nsis": {
-      "oneClick": true,
-      "perMachine": false,
-      "allowElevation": false,
-      "createDesktopShortcut": true,
-      "createStartMenuShortcut": true
-    }
+    "build": "npm run build:win",
+    "build:win": "npm run native:build && pwsh -NoProfile -File native/qt/build.ps1 -Package",
+    "build:linux": "bash native/qt/build-linux.sh",
+    "test": "pwsh -NoProfile -File native/qt/test.ps1",
+    "test:integration": "node native/qt/smoke.mjs",
+    "lint": "pwsh -NoProfile -File native/qt/lint.ps1",
+    "typecheck": "pwsh -NoProfile -File native/qt/build.ps1",
+    "verify:package": "node native/qt/verify-package.mjs"
   }
 }

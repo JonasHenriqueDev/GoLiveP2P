@@ -16,13 +16,13 @@ try{
  const h=child(exe,['--host','--port=47622','--source=window:'+handle,'--report='+host,'--duration=38'],'host');
  let ready=false;for(let i=0;i<80;++i){await wait(250);try{const v=await(await fetch(`http://${ip}:47622/discover`,{signal:AbortSignal.timeout(700)})).json();if(v.app==='golive-p2p'){ready=true;break;}}catch{}}
  if(!ready)throw Error('Qt host room did not open');
- const v=child(exe,['--connect='+ip,'--port=47622','--report='+viewer,'--duration=18'],'viewer');
+ const v=child(exe,['--connect='+ip,'--port=47622','--report='+viewer,'--duration=18','--fullscreen-test'],'viewer');
  await new Promise((done,reject)=>{v.once('exit',code=>code===0?done():reject(Error('Qt viewer exit '+code)));setTimeout(()=>reject(Error('Viewer timeout')),30000).unref();});
  await new Promise((done,reject)=>{if(h.exitCode!==null){done();return;}h.once('exit',code=>code===0?done():reject(Error('Qt host exit '+code)));setTimeout(()=>reject(Error('Host timeout')),30000).unref();});
  if(!existsSync(host)||!existsSync(viewer))throw Error('Missing Qt reports');
  const a=JSON.parse(readFileSync(host)),b=JSON.parse(readFileSync(viewer));
  const media=b.samples.flatMap(s=>Object.values(s.peers||{}));
- const pass=a.previewFrames>20 && a.encoder==='nvenc-d3d11' && b.displayedFrames>20 && media.some(p=>p.audioFrames>48000 && p.audioRms>0.0001 && p.receivedFrames>20);
+ const pass=a.previewFrames>20 && a.encoder==='nvenc-d3d11' && b.displayedFrames>20 && b.fullscreenTestPassed && media.some(p=>p.audioFrames>48000 && p.audioRms>0.0001 && p.receivedFrames>20);
  const summary={passed:pass,ui:'Qt Widgets only',hostPreview:a.previewFrames,viewerFrames:b.displayedFrames,receiverAudioFrames:Math.max(0,...media.map(p=>p.audioFrames||0)),receiverAudioRms:Math.max(0,...media.map(p=>p.audioRms||0)),reports:work};
  writeFileSync(join(work,'result.json'),JSON.stringify(summary,null,2));console.log(JSON.stringify(summary,null,2));if(!pass)throw Error('Qt audio/video integration failed');
 }finally{for(const p of children)if(p.exitCode===null)p.kill();}

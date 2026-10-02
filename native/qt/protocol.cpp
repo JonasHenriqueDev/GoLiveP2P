@@ -99,7 +99,6 @@ bool Protocol::mediaRequest(const QString& method, const QJsonObject& v) {
            QStringList{"offer", "answer", "ice-candidate"}.contains(v["type"].toString());
   }
   if (method == "bitrate") return integer(v["bitrate"], 500000, 20000000);
-  if (method == "display") return text(v, "handle", 20);
   return QStringList{"capabilities", "sources", "audio-sessions", "stats", "stop"}.contains(
              method) &&
          v.isEmpty();
